@@ -1,10 +1,10 @@
-from typing import Callable, TypeVar
+from typing import Callable, Sequence, TypeVar, Tuple
 
 import torch
 import torch_xla.core.xla_builder as xb
 from torch._ops import HigherOrderOperator
 from torch._C import DispatchKey
-from torch._higher_order_ops.utils import autograd_not_implemented
+from torch.utils._pytree import tree_map, PyTree, tree_flatten, tree_unflatten
 
 import torch_xla
 
@@ -76,22 +76,73 @@ def dynamic_slice(xs: xb.Op, idx: xb.Op) -> xb.Op:
 def scan_dense(fn, init, xs):
   """Forward implementation of scan."""
 
+  flat_init, carry_spec = tree_flatten(init)
+  _, xs_spec = tree_flatten(xs)
+
+  # Because `flat_fn` returns a concatenated flattened carry and y list,
+  # we need to know how many elements out of that list is the carry.
+  flat_carry_len = len(flat_init)
+
+  # `fn` operates on PyTrees and returns PyTrees. However, XLA only understands
+  # (lists or tuples of) tensors. So we will craft a `flat_fn` that takes in
+  # flattened PyTrees, internally recreates the desired tree structure, then
+  # calls `fn`. Similar transformation on the return path.
+  def flat_fn(carry: Sequence[torch.Tensor],
+              x: Sequence[torch.Tensor]) -> Sequence[torch.Tensor]:
+    carry_pytree = tree_unflatten(carry, carry_spec)
+    x_pytree = tree_unflatten(x, xs_spec)
+    carry_pytree, y_pytree = fn(carry_pytree, x_pytree)
+    carry, _ = tree_flatten(carry_pytree)
+    y, _ = tree_flatten(y_pytree)
+    return carry + y
+
   # Abstractly trace and lower `fn`.
   # Later we will include `fn_computation` within the while loop body.
   device = torch_xla.device()
-  fake_carry = torch.empty(
-      init.size(), dtype=init.dtype,
-      requires_grad=init.requires_grad).to(device)
-  fake_xs = torch.empty(
-      xs[0].size(), dtype=xs[0].dtype,
-      requires_grad=xs.requires_grad).to(device)
-  fn_outputs = fn(fake_carry, fake_xs)
+  fake_carry_pytree = tree_map(
+      lambda v: torch.empty(
+          v.size(), dtype=v.dtype, requires_grad=v.requires_grad).to(device),
+      init)
+  fake_x_pytree = tree_map(
+      lambda v: torch.empty(
+          v[0].size(), dtype=v[0].dtype, requires_grad=v.requires_grad).to(
+              device), xs)
+  fn_output_carry_pytree, fn_output_y_pytree = fn(fake_carry_pytree,
+                                                  fake_x_pytree)
+  # Later we'll use `fn_output_carry_spec` etc to turn flattened outputs back to a PyTree.
+  _, fn_output_carry_spec = tree_flatten(fn_output_carry_pytree)
+  _, fn_output_y_spec = tree_flatten(fn_output_y_pytree)
+  fake_carry, _ = tree_flatten(fake_carry_pytree)
+  fake_x, _ = tree_flatten(fake_x_pytree)
+  fn_outputs = flat_fn(fake_carry, fake_x)
   fn_ctx = torch_xla._XLAC.lowering.LoweringContext()
   fn_ctx.set_name_string("my_ctx")
   fn_ctx.build(list(fn_outputs))
   fn_hlo = fn_ctx.hlo()
   fn_computation = xb.computation_from_module_proto("my_fn_computation", fn_hlo)
-  xs_len = xs.shape[0]
+  xs_len = fake_x[0].shape[0]
+
+  # Since we are threading three PyTrees through the body_fn:
+  # - carry: the scan state
+  # - fn_carry_history: history of that state
+  # - ys: the output of fn
+  #
+  # We need to concatenate all three into one big list prior to
+  # entering `body_fn` and `cond_fn`, and split them back to three
+  # objects which is easier to work with after that. This pair of
+  # functions is for that purpose.
+  def pack(carry: Sequence[xb.Op], fn_carry_history: Sequence[xb.Op],
+           ys: Sequence[xb.Op]) -> Sequence[xb.Op]:
+    return tuple(carry) + tuple(fn_carry_history) + tuple(ys)
+
+  def unpack(
+      seq: Sequence[xb.Op]
+  ) -> Tuple[Sequence[xb.Op], Sequence[xb.Op], Sequence[xb.Op]]:
+    seq = list(seq)
+    carry = seq[:flat_carry_len]
+    fn_carry_history = seq[flat_carry_len:flat_carry_len * 2]
+    ys = seq[flat_carry_len * 2:]
+    return carry, fn_carry_history, ys
 
   # Figure out the shape of `ys` from the abstract tracing.
   fn_carry_shape, fn_y_shape = (v.shape for v in fn_outputs)
@@ -129,7 +180,11 @@ def scan_dense(fn, init, xs):
   _last_iter, carry, xs, fn_carry_history, ys = torch_xla._XLAC._xla_user_computation(
       'xla::scan', carry, computation)
 
-  return carry, fn_carry_history, ys
+  # Unflatten tensors back to PyTrees
+  carry = [carry]
+  ys = [ys]
+  return tree_unflatten(carry, carry_spec), fn_carry_history, tree_unflatten(
+      ys, fn_output_y_spec)
 
 
 import torch.autograd
@@ -193,3 +248,44 @@ def scan_func(ctx, fn, init, xs):
         unwrapped_xs,
     )
     return ctx.wrap_tensors(ret)
+
+
+if __name__ == "__main__":
+  device = torch_xla.device()
+
+  # A simple function to be applied at each step of the scan
+  def step_fn(carry, x):
+    new_carry = carry + x
+    y = carry * x
+    return new_carry, y
+
+  # Initial carry (let's make it a scalar with requires_grad)
+  init_carry = torch.tensor([1.0, 1.0, 1.0], requires_grad=True, device=device)
+
+  # Example input tensor of shape (batch_size, features)
+  xs = torch.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]],
+                    requires_grad=True,
+                    device=device)
+
+  # Use the scan function
+  final_carry, ys = scan(step_fn, init_carry, xs)
+
+  # Loss for backward pass (sum of the outputs)
+  loss = ys.sum()
+  print(loss)
+  assert loss.item() == 249.0
+
+  loss.backward()
+  torch_xla.sync()
+
+  print("init_carry grad", init_carry.grad)
+  print("xs grad", xs.grad)
+
+  assert init_carry.grad is not None
+  assert xs.grad is not None
+
+  assert np.allclose(init_carry.grad.detach().cpu().numpy(),
+                     np.array([12., 15., 18.]))
+
+  assert np.allclose(xs.grad.detach().cpu().numpy(),
+                     np.array([[12., 14., 16.], [9., 11., 13.], [6., 8., 10.]]))
