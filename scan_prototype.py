@@ -193,33 +193,3 @@ def scan_func(ctx, fn, init, xs):
         unwrapped_xs,
     )
     return ctx.wrap_tensors(ret)
-
-
-# A simple function to be applied at each step of the scan
-def step_fn(carry, x):
-  new_carry = carry + x
-  y = carry * x
-  return new_carry, y
-
-
-device = torch_xla.device()
-
-# Initial carry (let's make it a scalar with requires_grad)
-init_carry = torch.tensor([1.0, 1.0, 1.0], requires_grad=True, device=device)
-
-# Example input tensor of shape (batch_size, features)
-xs = torch.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]],
-                  requires_grad=True,
-                  device=device)
-
-# Use the scan function
-final_carry, ys = scan(step_fn, init_carry, xs)
-
-# Loss for backward pass (sum of the outputs)
-loss = ys.sum()
-print(loss)
-
-loss.backward()
-torch_xla.sync()
-print("init_carry grad", init_carry.grad)
-print("xs grad", xs.grad)
