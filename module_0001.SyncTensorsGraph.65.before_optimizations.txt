@@ -1,0 +1,77 @@
+HloModule SyncTensorsGraph.65, entry_computation_layout={(f32[5,3]{1,0}, f32[3]{0}, s64[])->(f32[5,3]{1,0})}
+
+PyLoweringContext.9 {
+  p1.12 = f32[3]{0} parameter(1)
+  p0.11 = f32[3]{0} parameter(0)
+  constant.10 = f32[] constant(1)
+  broadcast.13 = f32[3]{0} broadcast(constant.10), dimensions={}
+  multiply.14 = f32[3]{0} multiply(p0.11, broadcast.13)
+  add.15 = f32[3]{0} add(p1.12, multiply.14)
+  constant.16 = f32[] constant(1)
+  broadcast.17 = f32[3]{0} broadcast(constant.16), dimensions={}
+  multiply.18 = f32[3]{0} multiply(p0.11, broadcast.17)
+  add.19 = f32[3]{0} add(p1.12, multiply.18)
+  ROOT tuple.20 = (f32[3]{0}, f32[3]{0}) tuple(add.15, add.19)
+} // PyLoweringContext.9
+
+Body.21 {
+  p0.22 = (s64[], f32[3]{0}, f32[5,3]{1,0}, f32[5,3]{1,0}) parameter(0)
+  get-tuple-element.23 = s64[] get-tuple-element(p0.22), index=0
+  constant.28 = s64[] constant(1)
+  subtract.42 = s64[] subtract(get-tuple-element.23, constant.28)
+  get-tuple-element.24 = f32[3]{0} get-tuple-element(p0.22), index=1
+  get-tuple-element.25 = f32[5,3]{1,0} get-tuple-element(p0.22), index=2
+  constant.27 = s64[] constant(5)
+  subtract.29 = s64[] subtract(constant.27, get-tuple-element.23)
+  subtract.30 = s64[] subtract(subtract.29, constant.28)
+  constant.31 = s64[] constant(0)
+  broadcast.32 = s64[] broadcast(constant.31), dimensions={}
+  dynamic-slice.33 = f32[1,3]{1,0} dynamic-slice(get-tuple-element.25, subtract.30, broadcast.32), dynamic_slice_sizes={1,3}
+  reshape.34 = f32[3]{0} reshape(dynamic-slice.33)
+  call.35 = (f32[3]{0}, f32[3]{0}) call(get-tuple-element.24, reshape.34), to_apply=PyLoweringContext.9
+  get-tuple-element.36 = f32[3]{0} get-tuple-element(call.35), index=0
+  get-tuple-element.26 = f32[5,3]{1,0} get-tuple-element(p0.22), index=3
+  get-tuple-element.37 = f32[3]{0} get-tuple-element(call.35), index=1
+  broadcast.38 = f32[0,3]{1,0} broadcast(get-tuple-element.37), dimensions={1}
+  constant.39 = s64[] constant(0)
+  broadcast.40 = s64[] broadcast(constant.39), dimensions={}
+  dynamic-update-slice.41 = f32[5,3]{1,0} dynamic-update-slice(get-tuple-element.26, broadcast.38, subtract.30, broadcast.40)
+  ROOT tuple.43 = (s64[], f32[3]{0}, f32[5,3]{1,0}, f32[5,3]{1,0}) tuple(subtract.42, get-tuple-element.36, get-tuple-element.25, dynamic-update-slice.41)
+} // Body.21
+
+Condition.44 {
+  p0.45 = (s64[], f32[3]{0}, f32[5,3]{1,0}, f32[5,3]{1,0}) parameter(0)
+  get-tuple-element.47 = f32[3]{0} get-tuple-element(p0.45), index=1
+  get-tuple-element.48 = f32[5,3]{1,0} get-tuple-element(p0.45), index=2
+  get-tuple-element.49 = f32[5,3]{1,0} get-tuple-element(p0.45), index=3
+  get-tuple-element.46 = s64[] get-tuple-element(p0.45), index=0
+  constant.50 = s64[] constant(0)
+  ROOT compare.51 = pred[] compare(get-tuple-element.46, constant.50), direction=GT
+} // Condition.44
+
+scan.52 {
+  p0.53 = s64[] parameter(0)
+  p1.54 = f32[3]{0} parameter(1)
+  p2.55 = f32[5,3]{1,0} parameter(2)
+  p3.56 = f32[5,3]{1,0} parameter(3)
+  tuple.57 = (s64[], f32[3]{0}, f32[5,3]{1,0}, f32[5,3]{1,0}) tuple(p0.53, p1.54, p2.55, p3.56)
+  ROOT while.58 = (s64[], f32[3]{0}, f32[5,3]{1,0}, f32[5,3]{1,0}) while(tuple.57), condition=Condition.44, body=Body.21
+} // scan.52
+
+ENTRY SyncTensorsGraph.65 {
+  p2.8 = s64[] parameter(2)
+  p1.7 = f32[3]{0} parameter(1)
+  p0.6 = f32[5,3]{1,0} parameter(0)
+  constant.1 = f32[] constant(0)
+  reshape.2 = f32[1,1]{1,0} reshape(constant.1)
+  broadcast.3 = f32[1,1]{1,0} broadcast(reshape.2), dimensions={0,1}
+  reshape.4 = f32[] reshape(broadcast.3)
+  broadcast.5 = f32[5,3]{1,0} broadcast(reshape.4), dimensions={}
+  call.59 = (s64[], f32[3]{0}, f32[5,3]{1,0}, f32[5,3]{1,0}) call(p2.8, p1.7, p0.6, broadcast.5), to_apply=scan.52
+  get-tuple-element.60 = s64[] get-tuple-element(call.59), index=0
+  get-tuple-element.61 = f32[3]{0} get-tuple-element(call.59), index=1
+  get-tuple-element.62 = f32[5,3]{1,0} get-tuple-element(call.59), index=2
+  get-tuple-element.63 = f32[5,3]{1,0} get-tuple-element(call.59), index=3
+  ROOT tuple.64 = (f32[5,3]{1,0}) tuple(get-tuple-element.63)
+} // SyncTensorsGraph.65
+

@@ -1,0 +1,52 @@
+module @SyncTensorsGraph.65 attributes {mhlo.cross_program_prefetches = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
+  func.func @main(%arg0: tensor<5x3xf32>, %arg1: tensor<3xf32>, %arg2: tensor<i64>) -> tuple<tensor<5x3xf32>> {
+    %cst = stablehlo.constant dense<0.000000e+00> : tensor<f32>
+    %cst_0 = stablehlo.constant dense<0.000000e+00> : tensor<1x1xf32>
+    %0 = stablehlo.reshape %cst_0 : (tensor<1x1xf32>) -> tensor<f32>
+    %1 = stablehlo.broadcast_in_dim %0, dims = [] : (tensor<f32>) -> tensor<5x3xf32>
+    %2 = call @scan.52(%arg2, %arg1, %arg0, %1) {xla_shape = "(s64[], f32[3]{0}, f32[5,3]{1,0}, f32[5,3]{1,0})"} : (tensor<i64>, tensor<3xf32>, tensor<5x3xf32>, tensor<5x3xf32>) -> tuple<tensor<i64>, tensor<3xf32>, tensor<5x3xf32>, tensor<5x3xf32>>
+    %3 = stablehlo.get_tuple_element %2[0] : (tuple<tensor<i64>, tensor<3xf32>, tensor<5x3xf32>, tensor<5x3xf32>>) -> tensor<i64>
+    %4 = stablehlo.get_tuple_element %2[1] : (tuple<tensor<i64>, tensor<3xf32>, tensor<5x3xf32>, tensor<5x3xf32>>) -> tensor<3xf32>
+    %5 = stablehlo.get_tuple_element %2[2] : (tuple<tensor<i64>, tensor<3xf32>, tensor<5x3xf32>, tensor<5x3xf32>>) -> tensor<5x3xf32>
+    %6 = stablehlo.get_tuple_element %2[3] : (tuple<tensor<i64>, tensor<3xf32>, tensor<5x3xf32>, tensor<5x3xf32>>) -> tensor<5x3xf32>
+    %7 = stablehlo.tuple %6 {xla_shape = "(f32[5,3]{1,0})"} : tuple<tensor<5x3xf32>>
+    return %7 : tuple<tensor<5x3xf32>>
+  }
+  func.func private @scan.52(%arg0: tensor<i64>, %arg1: tensor<3xf32>, %arg2: tensor<5x3xf32>, %arg3: tensor<5x3xf32>) -> tuple<tensor<i64>, tensor<3xf32>, tensor<5x3xf32>, tensor<5x3xf32>> {
+    %0:4 = stablehlo.while(%iterArg = %arg0, %iterArg_0 = %arg1, %iterArg_1 = %arg2, %iterArg_2 = %arg3) : tensor<i64>, tensor<3xf32>, tensor<5x3xf32>, tensor<5x3xf32>
+     cond {
+      %c = stablehlo.constant dense<0> : tensor<i64>
+      %2 = stablehlo.compare  GT, %iterArg, %c : (tensor<i64>, tensor<i64>) -> tensor<i1>
+      stablehlo.return %2 : tensor<i1>
+    } do {
+      %c = stablehlo.constant dense<1> : tensor<i64>
+      %2 = stablehlo.subtract %iterArg, %c : tensor<i64>
+      %c_3 = stablehlo.constant dense<5> : tensor<i64>
+      %3 = stablehlo.subtract %c_3, %iterArg : tensor<i64>
+      %4 = stablehlo.subtract %3, %c : tensor<i64>
+      %c_4 = stablehlo.constant dense<0> : tensor<i64>
+      %5 = stablehlo.dynamic_slice %iterArg_1, %4, %c_4, sizes = [1, 3] : (tensor<5x3xf32>, tensor<i64>, tensor<i64>) -> tensor<1x3xf32>
+      %6 = stablehlo.reshape %5 : (tensor<1x3xf32>) -> tensor<3xf32>
+      %7 = func.call @PyLoweringContext.9(%iterArg_0, %6) {xla_shape = "(f32[3]{0}, f32[3]{0})"} : (tensor<3xf32>, tensor<3xf32>) -> tuple<tensor<3xf32>, tensor<3xf32>>
+      %8 = stablehlo.get_tuple_element %7[0] : (tuple<tensor<3xf32>, tensor<3xf32>>) -> tensor<3xf32>
+      %9 = stablehlo.get_tuple_element %7[1] : (tuple<tensor<3xf32>, tensor<3xf32>>) -> tensor<3xf32>
+      %10 = stablehlo.broadcast_in_dim %9, dims = [1] : (tensor<3xf32>) -> tensor<0x3xf32>
+      %c_5 = stablehlo.constant dense<0> : tensor<i64>
+      stablehlo.return %2, %8, %iterArg_1, %iterArg_2 : tensor<i64>, tensor<3xf32>, tensor<5x3xf32>, tensor<5x3xf32>
+    }
+    %1 = stablehlo.tuple %0#0, %0#1, %0#2, %0#3 {xla_shape = "(s64[], f32[3]{0}, f32[5,3]{1,0}, f32[5,3]{1,0})"} : tuple<tensor<i64>, tensor<3xf32>, tensor<5x3xf32>, tensor<5x3xf32>>
+    return %1 : tuple<tensor<i64>, tensor<3xf32>, tensor<5x3xf32>, tensor<5x3xf32>>
+  }
+  func.func private @PyLoweringContext.9(%arg0: tensor<3xf32>, %arg1: tensor<3xf32>) -> tuple<tensor<3xf32>, tensor<3xf32>> {
+    %cst = stablehlo.constant dense<1.000000e+00> : tensor<f32>
+    %cst_0 = stablehlo.constant dense<1.000000e+00> : tensor<3xf32>
+    %0 = stablehlo.multiply %arg0, %cst_0 : tensor<3xf32>
+    %1 = stablehlo.add %arg1, %0 : tensor<3xf32>
+    %cst_1 = stablehlo.constant dense<1.000000e+00> : tensor<f32>
+    %cst_2 = stablehlo.constant dense<1.000000e+00> : tensor<3xf32>
+    %2 = stablehlo.multiply %arg0, %cst_2 : tensor<3xf32>
+    %3 = stablehlo.add %arg1, %2 : tensor<3xf32>
+    %4 = stablehlo.tuple %1, %3 {xla_shape = "(f32[3]{0}, f32[3]{0})"} : tuple<tensor<3xf32>, tensor<3xf32>>
+    return %4 : tuple<tensor<3xf32>, tensor<3xf32>>
+  }
+}
