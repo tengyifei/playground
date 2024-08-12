@@ -1,0 +1,40 @@
+HloModule PyLoweringContext.33, entry_computation_layout={(f32[2]{0}, f32[1]{0}, f32[3]{0}, f32[2]{0}, f32[])->(f32[1]{0}, f32[2]{0}, f32[2]{0}, f32[3]{0})}
+
+%AddComputation.5 (x.6: f32[], y.7: f32[]) -> f32[] {
+  %x.6 = f32[] parameter(0)
+  %y.7 = f32[] parameter(1)
+  ROOT %add.8 = f32[] add(f32[] %x.6, f32[] %y.7)
+}
+
+%AddComputation.18 (x.19: f32[], y.20: f32[]) -> f32[] {
+  %x.19 = f32[] parameter(0)
+  %y.20 = f32[] parameter(1)
+  ROOT %add.21 = f32[] add(f32[] %x.19, f32[] %y.20)
+}
+
+ENTRY %PyLoweringContext.33 (p0.2: f32[2], p1.10: f32[1], p2.15: f32[3], p3.23: f32[2], p4.27: f32[]) -> (f32[1], f32[2], f32[2], f32[3]) {
+  %constant.4 = s32[] constant(2)
+  %constant.17 = s32[] constant(3)
+  %p1.10 = f32[1]{0} parameter(1)
+  %p0.2 = f32[2]{0} parameter(0)
+  %constant.3 = f32[] constant(0)
+  %reduce.9 = f32[] reduce(f32[2]{0} %p0.2, f32[] %constant.3), dimensions={0}, to_apply=%AddComputation.5
+  %constant.1 = f32[] constant(1)
+  %multiply.11 = f32[] multiply(f32[] %reduce.9, f32[] %constant.1)
+  %broadcast.12 = f32[1]{0} broadcast(f32[] %multiply.11), dimensions={}
+  %add.13 = f32[1]{0} add(f32[1]{0} %p1.10, f32[1]{0} %broadcast.12)
+  %p3.23 = f32[2]{0} parameter(3)
+  %p2.15 = f32[3]{0} parameter(2)
+  %constant.16 = f32[] constant(0)
+  %reduce.22 = f32[] reduce(f32[3]{0} %p2.15, f32[] %constant.16), dimensions={0}, to_apply=%AddComputation.18
+  %constant.14 = f32[] constant(1)
+  %multiply.24 = f32[] multiply(f32[] %reduce.22, f32[] %constant.14)
+  %broadcast.25 = f32[2]{0} broadcast(f32[] %multiply.24), dimensions={}
+  %add.26 = f32[2]{0} add(f32[2]{0} %p3.23, f32[2]{0} %broadcast.25)
+  %p4.27 = f32[] parameter(4)
+  %broadcast.28 = f32[2]{0} broadcast(f32[] %p4.27), dimensions={}
+  %multiply.29 = f32[2]{0} multiply(f32[2]{0} %p0.2, f32[2]{0} %broadcast.28)
+  %broadcast.30 = f32[3]{0} broadcast(f32[] %p4.27), dimensions={}
+  %multiply.31 = f32[3]{0} multiply(f32[3]{0} %p2.15, f32[3]{0} %broadcast.30)
+  ROOT %tuple.32 = (f32[1]{0}, f32[2]{0}, f32[2]{0}, f32[3]{0}) tuple(f32[1]{0} %add.13, f32[2]{0} %add.26, f32[2]{0} %multiply.29, f32[3]{0} %multiply.31)
+}

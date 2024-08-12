@@ -1,4 +1,6 @@
-from typing import Callable, Sequence, TypeVar, Tuple
+from dataclasses import dataclass
+import itertools
+from typing import Callable, Dict, Sequence, TypeVar, Tuple, List, Any
 
 import torch
 import torch_xla.core.xla_builder as xb
@@ -52,7 +54,7 @@ def dynamic_update_slice(ys: xb.Op, y: xb.Op, idx: xb.Op) -> xb.Op:
   # See https://openxla.org/xla/operation_semantics#dynamicupdateslice.
   y = y.broadcast([1])
   indices = [idx]
-  for _ in range(ys.shape().rank - 1):  # TODO: crashes during backward
+  for _ in range(ys.shape().rank - 1):
     indices.append(idx.zeros_like())
   return ys.dynamic_update_slice(y, indices)
 
@@ -69,6 +71,30 @@ def dynamic_slice(xs: xb.Op, idx: xb.Op) -> xb.Op:
   return sliced.reshape(shape)
 
 
+class Builder:
+
+  def __init__(self, name: str):
+    self._builder = xb.create_builder(name)
+    self._params = []
+    self._param_tensors = []
+
+  def add_param(self, val: torch.Tensor):
+    idx = len(self._params)
+    param = xb.mkparam(self._builder, idx, xb.tensor_shape(val))
+    self._params.append(param)
+    self._param_tensors.append(val)
+    return idx
+
+  def params(self) -> Tuple[xb.Op, ...]:
+    return tuple(self._params)
+
+  def param_tensors(self) -> Tuple[torch.Tensor, ...]:
+    return tuple(self._param_tensors)
+
+  def num_params(self) -> int:
+    return len(self._params)
+
+
 # See https://github.com/pytorch/pytorch/blob/main/aten/src/ATen/native/README.md for
 # the meaning of CompositeExplicitAutogradNonFunctional.
 @scan_op.py_impl(DispatchKey.CompositeExplicitAutogradNonFunctional)
@@ -77,18 +103,22 @@ def scan_dense(fn, init, xs):
   """Forward implementation of scan."""
 
   flat_init, carry_spec = tree_flatten(init)
-  _, xs_spec = tree_flatten(xs)
+  flat_xs, xs_spec = tree_flatten(xs)
 
   # Because `flat_fn` returns a concatenated flattened carry and y list,
   # we need to know how many elements out of that list is the carry.
   flat_carry_len = len(flat_init)
+  flat_xs_len = len(flat_xs)
+
+  assert flat_carry_len == flat_xs_len
 
   # `fn` operates on PyTrees and returns PyTrees. However, XLA only understands
   # (lists or tuples of) tensors. So we will craft a `flat_fn` that takes in
   # flattened PyTrees, internally recreates the desired tree structure, then
   # calls `fn`. Similar transformation on the return path.
-  def flat_fn(carry: Sequence[torch.Tensor],
-              x: Sequence[torch.Tensor]) -> Sequence[torch.Tensor]:
+  def flat_fn(*seq: torch.Tensor) -> Sequence[torch.Tensor]:
+    carry = seq[:flat_carry_len]
+    x = seq[flat_carry_len:]
     carry_pytree = tree_unflatten(carry, carry_spec)
     x_pytree = tree_unflatten(x, xs_spec)
     carry_pytree, y_pytree = fn(carry_pytree, x_pytree)
@@ -111,80 +141,168 @@ def scan_dense(fn, init, xs):
                                                   fake_x_pytree)
   # Later we'll use `fn_output_carry_spec` etc to turn flattened outputs back to a PyTree.
   _, fn_output_carry_spec = tree_flatten(fn_output_carry_pytree)
-  _, fn_output_y_spec = tree_flatten(fn_output_y_pytree)
+  assert fn_output_carry_spec == carry_spec
+  fake_output_y, fn_output_y_spec = tree_flatten(fn_output_y_pytree)
+  assert len(fake_output_y) == flat_carry_len
   fake_carry, _ = tree_flatten(fake_carry_pytree)
   fake_x, _ = tree_flatten(fake_x_pytree)
-  fn_outputs = flat_fn(fake_carry, fake_x)
+  fn_outputs = flat_fn(*(fake_carry + fake_x))
   fn_ctx = torch_xla._XLAC.lowering.LoweringContext()
   fn_ctx.set_name_string("my_ctx")
   fn_ctx.build(list(fn_outputs))
   fn_hlo = fn_ctx.hlo()
   fn_computation = xb.computation_from_module_proto("my_fn_computation", fn_hlo)
-  xs_len = fake_x[0].shape[0]
 
-  # Since we are threading three PyTrees through the body_fn:
+  builder = Builder('scan')
+
+  # Figure out the shape of `ys` from the abstract tracing.
+  fn_carry_out = fn_outputs[:flat_carry_len]
+  fn_y_out = fn_outputs[flat_carry_len:]
+  fn_carry_shapes = [v.shape for v in fn_carry_out]
+  fn_y_shapes = [v.shape for v in fn_y_out]
+  for fn_carry_shape, init_leaf in zip(fn_carry_shapes, flat_init):
+    assert fn_carry_shape == init_leaf.shape, f"`fn` must keep the `carry` shape unchanged. \
+      Got {fn_carry_shape} but expected {init_leaf.shape}"
+
+  # Since we are threading four PyTrees through the body_fn:
   # - carry: the scan state
+  # - xs: the flattened input pytree
   # - fn_carry_history: history of that state
-  # - ys: the output of fn
+  # - ys: the flattened output of fn
   #
   # We need to concatenate all three into one big list prior to
   # entering `body_fn` and `cond_fn`, and split them back to three
   # objects which is easier to work with after that. This pair of
   # functions is for that purpose.
-  def pack(carry: Sequence[xb.Op], fn_carry_history: Sequence[xb.Op],
-           ys: Sequence[xb.Op]) -> Sequence[xb.Op]:
-    return tuple(carry) + tuple(fn_carry_history) + tuple(ys)
+  T = TypeVar('T')
 
-  def unpack(
-      seq: Sequence[xb.Op]
-  ) -> Tuple[Sequence[xb.Op], Sequence[xb.Op], Sequence[xb.Op]]:
+  def pack(carry: Sequence[T], xs: Sequence[T], fn_carry_history: Sequence[T],
+           ys: Sequence[T]) -> Tuple[T, ...]:
+    return tuple(carry) + tuple(xs) + tuple(fn_carry_history) + tuple(ys)
+
+  def unpack(seq: Sequence[T]) -> Tuple[List[T], List[T], List[T], List[T]]:
     seq = list(seq)
     carry = seq[:flat_carry_len]
-    fn_carry_history = seq[flat_carry_len:flat_carry_len * 2]
-    ys = seq[flat_carry_len * 2:]
-    return carry, fn_carry_history, ys
+    xs = seq[flat_carry_len:flat_carry_len + flat_xs_len]
+    fn_carry_history = seq[flat_carry_len + flat_xs_len:flat_carry_len * 2 +
+                           flat_xs_len]
+    ys = seq[flat_carry_len * 2 + flat_xs_len:]
+    return carry, xs, fn_carry_history, ys
 
-  # Figure out the shape of `ys` from the abstract tracing.
-  fn_carry_shape, fn_y_shape = (v.shape for v in fn_outputs)
-  assert fn_carry_shape == init.shape, f"`fn` must keep the `carry` shape unchanged. \
-    Got {fn_carry_shape} but expected {init.shape}"
+  xs_len = fake_x[0].shape[0]
+  num_iters = torch.tensor(xs_len, device=device)
+  ys = [
+      torch.zeros((xs_len, *fn_y_shape), device=device)
+      for fn_y_shape in fn_y_shapes
+  ]
+  fn_carry_history = [
+      torch.zeros((xs_len, *fn_carry_shape), device=device)
+      for fn_carry_shape in fn_carry_shapes
+  ]
+  loop_tensors: Tuple[torch.Tensor, ...] = (num_iters,) + pack(
+      flat_init, flat_xs, fn_carry_history, ys)
+  for val in loop_tensors:
+    builder.add_param(val)
 
-  def cond_fn(num_iters: xb.Op, carry: xb.Op, xs: xb.Op,
-              fn_carry_history: xb.Op, ys: xb.Op):
+  # If there are additional device data tensors referenced by the computation that
+  # are not input or carry, we need to provide those tensors when calling
+  # `fn_computation`. As a result, we need to determine what are those tensors and they
+  # need to be provided as additional inputs to `cond_fn` and `body_fn`.
+
+  # Add additional inputs as params as well.
+  mapping: Dict[int, torch.Tensor] = fn_ctx.parameter_id_tensor_mapping()
+  param_id_to_additional_tensors_param_id: Dict[int, int] = {}
+  num_params = len(mapping)
+  for v in itertools.chain(fake_carry, fake_x):
+    param_id = fn_ctx.tensor_parameter_id(v)
+    if param_id != -1:
+      del mapping[param_id]
+  for param_id in range(num_params):
+    if param_id in mapping:
+      idx = builder.add_param(mapping[param_id].to(torch_xla.device()))
+      param_id_to_additional_tensors_param_id[param_id] = idx
+  num_additional_inputs = len(mapping)
+
+  def skip_additional_inputs(fn):
+
+    def wrapper(*args):
+      first_args = args[:builder.num_params() - num_additional_inputs]
+      return fn(*first_args)
+
+    return wrapper
+
+  def pass_through_additional_inputs(fn):
+
+    def wrapper(*args):
+      first_args = args[:builder.num_params() - num_additional_inputs]
+      additional_inputs = args[builder.num_params() - num_additional_inputs:]
+      res = fn(*first_args, additional_inputs=additional_inputs)
+      assert isinstance(res, tuple)
+      return xb.Op.tuple(res + additional_inputs)
+
+    return wrapper
+
+  # For each tensor, we need to know its parameter ID.
+  # Then we should order the tensors in increasing parameter ID order when passing them
+  # to `xb.Op.call`. For each (ID, tensor) in `mapping`:
+  # - Check if the tensor is a fake tensor we just created
+  # - If yes, find the position in the fake tensor list. Index into the input ops.
+  # - If no, find the op in the additional input list.
+  def call_fn_computation(carry: List[xb.Op], x: List[xb.Op],
+                          additional_inputs: Tuple[xb.Op, ...]) -> xb.Op:
+    param_id_to_fake_tensors_id: Dict[int, int] = {}
+    for i, v in enumerate(itertools.chain(fake_carry, fake_x)):
+      param_id = fn_ctx.tensor_parameter_id(v)
+      if param_id != -1:
+        param_id_to_fake_tensors_id[param_id] = i
+
+    all_inputs = carry + x
+    all_inputs_reordered = []
+    mapping: Dict[int, torch.Tensor] = fn_ctx.parameter_id_tensor_mapping()
+    for i in range(len(mapping)):
+      if i in param_id_to_fake_tensors_id:
+        op = all_inputs[param_id_to_fake_tensors_id[i]]
+        all_inputs_reordered.append(op)
+      else:
+        op = additional_inputs[param_id_to_additional_tensors_param_id[i] -
+                               len(loop_tensors)]
+        all_inputs_reordered.append(op)
+    return xb.Op.call(fn_computation, all_inputs_reordered)
+
+  @skip_additional_inputs
+  def cond_fn(num_iters: xb.Op, *args: xb.Op):
     return num_iters > xb.Op.scalar(num_iters.builder(), 0, dtype=xb.Type.S64)
 
-  def body_fn(num_iters: xb.Op, carry: xb.Op, xs: xb.Op,
-              fn_carry_history: xb.Op, ys: xb.Op):
+  @pass_through_additional_inputs
+  def body_fn(num_iters: xb.Op, *args: xb.Op, additional_inputs: Tuple[xb.Op,
+                                                                       ...]):
+    carry, xs, fn_carry_history, ys = unpack(args)
     xs_len_op = xb.Op.scalar(num_iters.builder(), xs_len, dtype=xb.Type.S64)
     one = xb.Op.scalar(num_iters.builder(), 1, dtype=xb.Type.S64)
     idx = xs_len_op - num_iters
-    x = dynamic_slice(xs, idx)
-    fn_carry_history = dynamic_update_slice(fn_carry_history, carry, idx)
-    result = xb.Op.call(fn_computation, (carry, x))
-    carry = result.get_tuple_element(0)
-    y = result.get_tuple_element(1)
-    ys = dynamic_update_slice(ys, y, idx)
-    return xb.Op.tuple((num_iters - one, carry, xs, fn_carry_history, ys))
+    x = [dynamic_slice(v, idx) for v in xs]
+    for i in range(len(carry)):
+      fn_carry_history[i] = dynamic_update_slice(fn_carry_history[i], carry[i],
+                                                 idx)
+    result = call_fn_computation(carry, x, additional_inputs)
+    for i in range(flat_carry_len):
+      carry[i] = result.get_tuple_element(i)
+      y = result.get_tuple_element(i + flat_carry_len)
+      ys[i] = dynamic_update_slice(ys[i], y, idx)
+    return (num_iters - one,) + pack(carry, xs, fn_carry_history, ys)
 
-  num_iters = torch.tensor(xs_len, device=device)
-  ys = torch.zeros((xs_len, *fn_y_shape), device=device)
-  fn_carry_history = torch.zeros((xs_len, *fn_carry_shape), device=device)
-  carry = (num_iters, init, xs, fn_carry_history, ys)
-  builder = xb.create_builder('scan')
-  carry_param = []
-  for i, val in enumerate(carry):
-    carry_param.append(xb.mkparam(builder, i, xb.tensor_shape(val)))
-  res = xb.Op.mkwhile(tuple(carry_param), cond_fn, body_fn)
+  res = xb.Op.mkwhile(builder.params(), cond_fn, body_fn)
   computation = res.build('scan')
 
-  _last_iter, carry, xs, fn_carry_history, ys = torch_xla._XLAC._xla_user_computation(
-      'xla::scan', carry, computation)
+  outputs = torch_xla._XLAC._xla_user_computation('xla::scan',
+                                                  builder.param_tensors(),
+                                                  computation)
+  outputs = outputs[:len(outputs) - num_additional_inputs]
+  carry, xs, fn_carry_history, ys = unpack(outputs[1:])
 
   # Unflatten tensors back to PyTrees
-  carry = [carry]
-  ys = [ys]
-  return tree_unflatten(carry, carry_spec), fn_carry_history, tree_unflatten(
-      ys, fn_output_y_spec)
+  return tree_unflatten(carry, carry_spec), tree_unflatten(
+      fn_carry_history, carry_spec), tree_unflatten(ys, fn_output_y_spec)
 
 
 import torch.autograd
@@ -199,13 +317,23 @@ class Scan(torch.autograd.Function):
     ctx._fn = fn
     with torch._C._AutoDispatchBelowAutograd():
       carry, carry_history, ys = _scan_carry_history(fn, init, xs)
-    ctx.save_for_backward(carry_history, xs)
+    flat_carry_history, carry_spec = tree_flatten(carry_history)
+    flat_xs, xs_spec = tree_flatten(xs)
+    ctx.save_for_backward(*flat_carry_history, *flat_xs)
+    ctx._flat_carry_len = len(flat_carry_history)
+    ctx._carry_spec = carry_spec
+    ctx._xs_spec = xs_spec
     return carry, carry_history, ys
 
   @staticmethod
   def backward(ctx, grad_carry, grad_carry_history, grad_ys):
     fn = ctx._fn
-    carry_history, xs = ctx.saved_tensors
+    flat_carry_len = ctx._flat_carry_len
+    carry_spec = ctx._carry_spec
+    xs_spec = ctx._xs_spec
+    tensors_list = ctx.saved_tensors
+    carry_history = tree_unflatten(tensors_list[:flat_carry_len], carry_spec)
+    xs = tree_unflatten(tensors_list[flat_carry_len:], xs_spec)
 
     def step_fn(grad_carry, grad_y, carry, x):
       # Compute the backward of a single scan iteration
@@ -251,41 +379,64 @@ def scan_func(ctx, fn, init, xs):
 
 
 if __name__ == "__main__":
+  import numpy as np
   device = torch_xla.device()
 
-  # A simple function to be applied at each step of the scan
+  # Step function that operates on a tuple (carry, (x1, x2)) where x1 and x2 have different sizes
   def step_fn(carry, x):
-    new_carry = carry + x
-    y = carry * x
-    return new_carry, y
+    carry1, carry2 = carry
+    x1, x2 = x
 
-  # Initial carry (let's make it a scalar with requires_grad)
-  init_carry = torch.tensor([1.0, 1.0, 1.0], requires_grad=True, device=device)
+    new_carry1 = carry1 + x1.sum()
+    new_carry2 = carry2 + x2.sum()
 
-  # Example input tensor of shape (batch_size, features)
-  xs = torch.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]],
-                    requires_grad=True,
-                    device=device)
+    y1 = x1 * 2
+    y2 = x2 * 2
 
-  # Use the scan function
+    return (new_carry1, new_carry2), (y1, y2)
+
+  # Initial carry: tuple of tensors with different sizes
+  init_carry = (torch.tensor([0.0], device=device),
+                torch.tensor([1.0, 2.0], device=device))
+
+  # Example input: tuple of tensors with different sizes
+  xs = (
+      torch.tensor([[1.0, 2.0], [3.0, 4.0]], device=device),  # Shape (2, 2)
+      torch.tensor([[5.0, 6.0, 7.0], [8.0, 9.0, 10.0]],
+                   device=device)  # Shape (2, 3)
+  )
+
+  # Call the scan function
   final_carry, ys = scan(step_fn, init_carry, xs)
 
-  # Loss for backward pass (sum of the outputs)
-  loss = ys.sum()
-  print(loss)
-  assert loss.item() == 249.0
-
-  loss.backward()
+  # Print the outputs
   torch_xla.sync()
+  print("Final carry:", final_carry)
+  print("Outputs ys:", ys)
 
-  print("init_carry grad", init_carry.grad)
-  print("xs grad", xs.grad)
+  # Expected values from the PyTorch script output
+  expected_final_carry: Any = (np.array([10.0]), np.array([46.0, 47.0]))
+  expected_ys_1 = np.array([[2.0, 4.0], [6.0, 8.0]])
+  expected_ys_2 = np.array([[10.0, 12.0, 14.0], [16.0, 18.0, 20.0]])
 
-  assert init_carry.grad is not None
-  assert xs.grad is not None
+  # Convert PyTorch tensors to numpy arrays for comparison
+  final_carry_np: Any = (final_carry[0].cpu().numpy(),
+                         final_carry[1].cpu().numpy())
+  ys_1_np, ys_2_np = ys[0].cpu().numpy(), ys[1].cpu().numpy()
 
-  assert np.allclose(init_carry.grad.detach().cpu().numpy(),
-                     np.array([12., 15., 18.]))
+  # Assert statements to verify the output
+  assert np.allclose(
+      final_carry_np[0], expected_final_carry[0]
+  ), f"Final carry[0] mismatch: {final_carry_np[0]} != {expected_final_carry[0]}"
+  assert np.allclose(
+      final_carry_np[1], expected_final_carry[1]
+  ), f"Final carry[1] mismatch: {final_carry_np[1]} != {expected_final_carry[1]}"
 
-  assert np.allclose(xs.grad.detach().cpu().numpy(),
-                     np.array([[12., 14., 16.], [9., 11., 13.], [6., 8., 10.]]))
+  assert np.allclose(
+      ys_1_np,
+      expected_ys_1), f"Outputs ys[0] mismatch: {ys_1_np} != {expected_ys_1}"
+  assert np.allclose(
+      ys_2_np,
+      expected_ys_2), f"Outputs ys[1] mismatch: {ys_2_np} != {expected_ys_2}"
+
+  print("All assertions passed!")

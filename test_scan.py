@@ -1,5 +1,6 @@
 import torch_xla
 import torch
+from torch.utils._pytree import tree_map
 import numpy as np
 import pytest
 
@@ -8,7 +9,33 @@ from scan_prototype import scan
 device = torch_xla.device()
 
 
-def test_scan():
+def test_scan_forward():
+
+  # A simple function to be applied at each step of the scan
+  def step_fn(carry, x):
+    new_carry = carry + x
+    y = carry * x
+    return new_carry, y
+
+  # Initial carry
+  init_carry = torch.tensor([1.0, 1.0, 1.0], requires_grad=False, device=device)
+
+  # Example input tensor of shape (batch_size, features)
+  xs = torch.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]],
+                    requires_grad=True,
+                    device=device)
+
+  # Use the scan function
+  final_carry, ys = scan(step_fn, init_carry, xs)
+
+  # Loss for backward pass (sum of the outputs)
+  loss = ys.sum()
+  torch_xla.sync()
+  print(loss)
+  assert loss.item() == 249.0
+
+
+def test_scan_autograd():
 
   # A simple function to be applied at each step of the scan
   def step_fn(carry, x):
@@ -29,9 +56,6 @@ def test_scan():
 
   # Loss for backward pass (sum of the outputs)
   loss = ys.sum()
-  print(loss)
-  assert loss.item() == 249.0
-
   loss.backward()
   torch_xla.sync()
 
@@ -46,9 +70,6 @@ def test_scan():
 
   assert np.allclose(xs.grad.detach().cpu().numpy(),
                      np.array([[12., 14., 16.], [9., 11., 13.], [6., 8., 10.]]))
-
-
-from torch.utils._pytree import tree_map
 
 
 # Hypothetical `scan` function that supports PyTrees
@@ -66,7 +87,7 @@ def scan_brute_force_pytree(fn, init, xs):
 
 
 @pytest.mark.parametrize("scan_fn", [scan_brute_force_pytree, scan])
-def test_scan_pytree(scan_fn):
+def test_scan_pytree_forward(scan_fn):
   # Step function that operates on a tuple (carry, (x1, x2)) where x1 and x2 have different sizes
   def step_fn(carry, x):
     carry1, carry2 = carry
