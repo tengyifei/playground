@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 import itertools
 from typing import Callable, Dict, Sequence, TypeVar, Tuple, List, Any
 
@@ -110,8 +109,6 @@ def scan_dense(fn, init, xs):
   flat_carry_len = len(flat_init)
   flat_xs_len = len(flat_xs)
 
-  assert flat_carry_len == flat_xs_len
-
   # `fn` operates on PyTrees and returns PyTrees. However, XLA only understands
   # (lists or tuples of) tensors. So we will craft a `flat_fn` that takes in
   # flattened PyTrees, internally recreates the desired tree structure, then
@@ -131,12 +128,20 @@ def scan_dense(fn, init, xs):
   device = torch_xla.device()
   fake_carry_pytree = tree_map(
       lambda v: torch.empty(
-          v.size(), dtype=v.dtype, requires_grad=v.requires_grad).to(device),
-      init)
+          v.size(), dtype=v.dtype, requires_grad=v.requires_grad, device=device
+      ), init)
   fake_x_pytree = tree_map(
       lambda v: torch.empty(
-          v[0].size(), dtype=v[0].dtype, requires_grad=v.requires_grad).to(
-              device), xs)
+          v[0].size(),
+          dtype=v[0].dtype,
+          requires_grad=v.requires_grad,
+          device=device), xs)
+  print("xs:")
+  tree_map(lambda v: print(f"{v}, {v.requires_grad}"), xs)
+  print("Fakes:")
+  tree_map(lambda v: print(f"{v}, {v.requires_grad}"), fake_carry_pytree)
+  tree_map(lambda v: print(f"{v}, {v.requires_grad}"), fake_x_pytree)
+  print("---------------")
   fn_output_carry_pytree, fn_output_y_pytree = fn(fake_carry_pytree,
                                                   fake_x_pytree)
   # Later we'll use `fn_output_carry_spec` etc to turn flattened outputs back to a PyTree.
@@ -264,6 +269,7 @@ def scan_dense(fn, init, xs):
         op = all_inputs[param_id_to_fake_tensors_id[i]]
         all_inputs_reordered.append(op)
       else:
+        # TODO: super subtle. what is the right abstraction for this?
         op = additional_inputs[param_id_to_additional_tensors_param_id[i] -
                                len(loop_tensors)]
         all_inputs_reordered.append(op)
@@ -297,7 +303,9 @@ def scan_dense(fn, init, xs):
   outputs = torch_xla._XLAC._xla_user_computation('xla::scan',
                                                   builder.param_tensors(),
                                                   computation)
+  # skip the last num_additional_inputs
   outputs = outputs[:len(outputs) - num_additional_inputs]
+  # `1:` to skip `num_iters`
   carry, xs, fn_carry_history, ys = unpack(outputs[1:])
 
   # Unflatten tensors back to PyTrees
@@ -335,11 +343,26 @@ class Scan(torch.autograd.Function):
     carry_history = tree_unflatten(tensors_list[:flat_carry_len], carry_spec)
     xs = tree_unflatten(tensors_list[flat_carry_len:], xs_spec)
 
-    def step_fn(grad_carry, grad_y, carry, x):
+    def step_fn(grad_carry, pytree: Tuple[torch.Tensor, torch.Tensor,
+                                          torch.Tensor]):
+      grad_y, carry, x = pytree
       # Compute the backward of a single scan iteration
       detached_inputs = detach_variable((carry, x))
       with torch.enable_grad():
+        for inp in detached_inputs:
+          print(f"[detached_inputs] What is this tensor? {inp.detach().cpu()}")
+          print(
+              f"[detached_inputs] Does this tensor require grad? {inp.requires_grad}"
+          )
         outputs = fn(*detached_inputs)
+        for output in outputs:
+          print(f"[output] What is this tensor? {output.detach().cpu()}")
+          print(
+              f"[output] Does this tensor require grad? {output.requires_grad}")
+        print(f"[grad_carry] What is this tensor? {grad_carry.detach().cpu()}")
+        print(
+            f"[grad_carry] Does this tensor require grad? {grad_carry.requires_grad}"
+        )
         torch.autograd.backward(outputs, (grad_carry, grad_y))
       grad_carry, grad_x = tuple(inp.grad for inp in detached_inputs)
       assert grad_carry is not None
@@ -348,15 +371,13 @@ class Scan(torch.autograd.Function):
 
     # Reverse loop to accumulate gradients
     grad_init = grad_carry.clone()
-    grad_xs = torch.zeros_like(xs)
-
-    xs_len = xs.size(0)
     carry_history = carry_history.flip(0).requires_grad_(True)
     xs = xs.flip(0).requires_grad_(True)
     grad_ys = grad_ys.flip(0).requires_grad_(True)
-    for i in range(xs_len):
-      grad_init, grad_xs[i] = step_fn(grad_init, grad_ys[i], carry_history[i],
-                                      xs[i])
+
+    # TODO: RuntimeError: element 0 of tensors does not require grad and does not have a grad_fn.
+    grad_init, _, grad_xs = scan_dense(step_fn, grad_init,
+                                       (grad_ys, carry_history, xs))
 
     return None, grad_init, grad_xs.flip(0)
 
@@ -382,61 +403,36 @@ if __name__ == "__main__":
   import numpy as np
   device = torch_xla.device()
 
-  # Step function that operates on a tuple (carry, (x1, x2)) where x1 and x2 have different sizes
+  # A simple function to be applied at each step of the scan
   def step_fn(carry, x):
-    carry1, carry2 = carry
-    x1, x2 = x
+    new_carry = carry + x
+    y = carry * x
+    return new_carry, y
 
-    new_carry1 = carry1 + x1.sum()
-    new_carry2 = carry2 + x2.sum()
+  # Initial carry (let's make it a scalar with requires_grad)
+  init_carry = torch.tensor([1.0, 1.0, 1.0], requires_grad=True, device=device)
 
-    y1 = x1 * 2
-    y2 = x2 * 2
+  # Example input tensor of shape (batch_size, features)
+  xs = torch.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]],
+                    requires_grad=True,
+                    device=device)
 
-    return (new_carry1, new_carry2), (y1, y2)
-
-  # Initial carry: tuple of tensors with different sizes
-  init_carry = (torch.tensor([0.0], device=device),
-                torch.tensor([1.0, 2.0], device=device))
-
-  # Example input: tuple of tensors with different sizes
-  xs = (
-      torch.tensor([[1.0, 2.0], [3.0, 4.0]], device=device),  # Shape (2, 2)
-      torch.tensor([[5.0, 6.0, 7.0], [8.0, 9.0, 10.0]],
-                   device=device)  # Shape (2, 3)
-  )
-
-  # Call the scan function
+  # Use the scan function
   final_carry, ys = scan(step_fn, init_carry, xs)
 
-  # Print the outputs
+  # Loss for backward pass (sum of the outputs)
+  loss = ys.sum()
+  loss.backward()
   torch_xla.sync()
-  print("Final carry:", final_carry)
-  print("Outputs ys:", ys)
 
-  # Expected values from the PyTorch script output
-  expected_final_carry: Any = (np.array([10.0]), np.array([46.0, 47.0]))
-  expected_ys_1 = np.array([[2.0, 4.0], [6.0, 8.0]])
-  expected_ys_2 = np.array([[10.0, 12.0, 14.0], [16.0, 18.0, 20.0]])
+  print("init_carry grad", init_carry.grad)
+  print("xs grad", xs.grad)
 
-  # Convert PyTorch tensors to numpy arrays for comparison
-  final_carry_np: Any = (final_carry[0].cpu().numpy(),
-                         final_carry[1].cpu().numpy())
-  ys_1_np, ys_2_np = ys[0].cpu().numpy(), ys[1].cpu().numpy()
+  assert init_carry.grad is not None
+  assert xs.grad is not None
 
-  # Assert statements to verify the output
-  assert np.allclose(
-      final_carry_np[0], expected_final_carry[0]
-  ), f"Final carry[0] mismatch: {final_carry_np[0]} != {expected_final_carry[0]}"
-  assert np.allclose(
-      final_carry_np[1], expected_final_carry[1]
-  ), f"Final carry[1] mismatch: {final_carry_np[1]} != {expected_final_carry[1]}"
+  assert np.allclose(init_carry.grad.detach().cpu().numpy(),
+                     np.array([12., 15., 18.]))
 
-  assert np.allclose(
-      ys_1_np,
-      expected_ys_1), f"Outputs ys[0] mismatch: {ys_1_np} != {expected_ys_1}"
-  assert np.allclose(
-      ys_2_np,
-      expected_ys_2), f"Outputs ys[1] mismatch: {ys_2_np} != {expected_ys_2}"
-
-  print("All assertions passed!")
+  assert np.allclose(xs.grad.detach().cpu().numpy(),
+                     np.array([[12., 14., 16.], [9., 11., 13.], [6., 8., 10.]]))
