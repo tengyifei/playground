@@ -125,23 +125,24 @@ def scan_dense(fn, init, xs):
 
   # Abstractly trace and lower `fn`.
   # Later we will include `fn_computation` within the while loop body.
+  def make_fake_tensor(v: torch.Tensor) -> torch.Tensor:
+    # TODO: there are some problems in PyTorch/XLA, or I'm missing something, because
+    #
+    #    torch.empty(v.size(), dtype=v.dtype, requires_grad=v.requires_grad).to(device)
+    #
+    # results in a tensor without gradient tracking, and
+    #
+    #    torch.empty(v.size(), dtype=v.dtype, device=v.device, requires_grad=v.requires_grad)
+    #
+    # results in incorrect calculation, unless they are `print()`-ed.
+    # But all three should be equivalent.
+    t = torch.empty(v.size(), dtype=v.dtype).to(device)
+    t.requires_grad_(v.requires_grad)
+    return t
+
   device = torch_xla.device()
-  fake_carry_pytree = tree_map(
-      lambda v: torch.empty(
-          v.size(), dtype=v.dtype, requires_grad=v.requires_grad, device=device
-      ), init)
-  fake_x_pytree = tree_map(
-      lambda v: torch.empty(
-          v[0].size(),
-          dtype=v[0].dtype,
-          requires_grad=v.requires_grad,
-          device=device), xs)
-  print("xs:")
-  tree_map(lambda v: print(f"{v}, {v.requires_grad}"), xs)
-  print("Fakes:")
-  tree_map(lambda v: print(f"{v}, {v.requires_grad}"), fake_carry_pytree)
-  tree_map(lambda v: print(f"{v}, {v.requires_grad}"), fake_x_pytree)
-  print("---------------")
+  fake_carry_pytree = tree_map(make_fake_tensor, init)
+  fake_x_pytree = tree_map(lambda v: make_fake_tensor(v[0]), xs)
   fn_output_carry_pytree, fn_output_y_pytree = fn(fake_carry_pytree,
                                                   fake_x_pytree)
   # Later we'll use `fn_output_carry_spec` etc to turn flattened outputs back to a PyTree.
@@ -349,20 +350,7 @@ class Scan(torch.autograd.Function):
       # Compute the backward of a single scan iteration
       detached_inputs = detach_variable((carry, x))
       with torch.enable_grad():
-        for inp in detached_inputs:
-          print(f"[detached_inputs] What is this tensor? {inp.detach().cpu()}")
-          print(
-              f"[detached_inputs] Does this tensor require grad? {inp.requires_grad}"
-          )
         outputs = fn(*detached_inputs)
-        for output in outputs:
-          print(f"[output] What is this tensor? {output.detach().cpu()}")
-          print(
-              f"[output] Does this tensor require grad? {output.requires_grad}")
-        print(f"[grad_carry] What is this tensor? {grad_carry.detach().cpu()}")
-        print(
-            f"[grad_carry] Does this tensor require grad? {grad_carry.requires_grad}"
-        )
         torch.autograd.backward(outputs, (grad_carry, grad_y))
       grad_carry, grad_x = tuple(inp.grad for inp in detached_inputs)
       assert grad_carry is not None
