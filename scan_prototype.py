@@ -363,7 +363,6 @@ class Scan(torch.autograd.Function):
     xs = xs.flip(0).requires_grad_(True)
     grad_ys = grad_ys.flip(0).requires_grad_(True)
 
-    # TODO: RuntimeError: element 0 of tensors does not require grad and does not have a grad_fn.
     grad_init, _, grad_xs = scan_dense(step_fn, grad_init,
                                        (grad_ys, carry_history, xs))
 
