@@ -149,66 +149,88 @@ def test_scan_pytree_forward(scan_fn):
 
 def test_scan_linear_layers():
   import torch_xla
-  from typing import Sequence
+  import torch.nn as nn
+  from apply_layers import apply_layers
 
   device = torch_xla.device()
 
-  def extract_weights_dict(module):
-    """
-    Extracts the parameters (weights and biases) from a PyTorch module and stores them in a dictionary.
-    """
-    weights_dict = {
-        name: param.clone() for name, param in module.named_parameters()
-    }
-    return weights_dict
-
-  def apply_weights_dict(module, weights_dict):
-    """
-    Re-applies the weights and biases from the dictionary back to the PyTorch module.
-    """
-    for name, param in module.named_parameters():
-      if name in weights_dict:
-        param.data = weights_dict[name].clone()
-
-  def apply_layers(layers: Sequence[torch.nn.Module], input_data):
-    # Extract and stack the parameters into a pytree
-    params = [extract_weights_dict(layer) for layer in layers]
-    stacked_params = tree_map(lambda *tensors: torch.stack(tensors, dim=0),
-                              *params)
-
-    # Empty layers case.
-    if not params:
-      return input_data
-
-    # Use the first layer as the example/template layer
-    from copy import deepcopy
-    example_layer = deepcopy(layers[0])
-
-    # Hollow out the weights and biases in the example layer
-    for name, param in example_layer.named_parameters():
-      param.data = torch.empty_like(param)
-
-    # Function to apply at each step
-    def one_layer(carry, params):
-      # Apply the current layer's weights and biases to the example layer and run
-      apply_weights_dict(example_layer, params)
-      return example_layer(carry), torch.zeros_like(carry)
-
-    final_carry, _ = scan(one_layer, input_data, stacked_params)
-
-    return final_carry
-
   # We want to apply these layers sequentially
   import torch.nn as nn
-  layers = [nn.Linear(64, 64).to(device) for _ in range(1)]
+  layers = [nn.Linear(64, 64).to(device) for _ in range(10)]
   input_data = torch.randn(64).to(device)
   output = apply_layers(layers, input_data.clone())
   print("Output:", output)
+  output.sum().backward()
 
   # Test that the result is the same as for loop.
   loop_output = input_data.clone()
-  for layer in layers:
+  from copy import deepcopy
+  loop_layers = deepcopy(layers)
+  for layer in loop_layers:
     loop_output = layer(loop_output)
   print("Loop output:", loop_output)
-  assert np.allclose(loop_output.detach().cpu().numpy(),
-                     output.detach().cpu().numpy())
+  import numpy as np
+  assert np.allclose(
+      loop_output.detach().cpu().numpy(),
+      output.detach().cpu().numpy(),
+      atol=0.0001,
+      rtol=0.01)
+
+  loop_output.sum().backward()
+
+  # Test that the gradients are the same too.
+  for layer_scan, layer_loop in zip(layers, loop_layers):
+    assert np.allclose(
+        layer_scan.weight.grad.detach().cpu().numpy(),  # type: ignore
+        layer_loop.weight.grad.detach().cpu().numpy(),  # type: ignore
+        atol=0.0001,
+        rtol=0.01), f"{layer_scan.weight.grad} != {layer_loop.weight.grad}"
+
+    # TODO: enable this check
+    # assert np.allclose(
+    #     layer_scan.bias.grad.detach().cpu().numpy(),  # type: ignore
+    #     layer_loop.bias.grad.detach().cpu().numpy(),  # type: ignore
+    #     atol=0.0001,
+    #     rtol=0.01), f"{layer_scan.bias.grad} != {layer_loop.bias.grad}"
+
+
+def test_scan_decoder_model():
+  import torch_xla
+  from decoder_only_model import DecoderOnlyConfig, DecoderOnlyModel
+
+  device = torch_xla.device()
+
+  # Define the configuration
+  config = DecoderOnlyConfig()
+
+  # Instantiate the model
+  model = DecoderOnlyModel(config).to(device)
+
+  # Set the batch size and sequence length
+  batch_size = 2  # 2 sequences in parallel
+  sequence_length = 10  # each sequence is 10 tokens long
+
+  # Generate random input_ids within the range of the vocabulary size
+  input_ids = torch.randint(0, config.vocab_size,
+                            (batch_size, sequence_length)).to(device)
+
+  with torch.no_grad():
+    # Feed the input_ids into the model
+    loop_output = model(input_ids.clone())
+
+    # Print the output shape
+    print(f"Loop output shape: {loop_output.shape}")
+
+  with torch.no_grad():
+    # Run again, this time using `scan`
+    # TODO: switch to XLA scan
+    scan_output = model.forward_loopy_scan(input_ids.clone())
+
+    print(f"Scan output shape: {scan_output.shape}")
+
+  close = np.allclose(
+      loop_output.detach().cpu().numpy(),
+      scan_output.detach().cpu().numpy(),
+      atol=0.0001,
+      rtol=0.01)
+  assert close

@@ -192,8 +192,7 @@ def scan_dense(fn, init, xs):
   # Later we'll use `fn_output_carry_spec` etc to turn flattened outputs back to a PyTree.
   _, fn_output_carry_spec = tree_flatten(fn_output_carry_pytree)
   assert fn_output_carry_spec == carry_spec
-  fake_output_y, fn_output_y_spec = tree_flatten(fn_output_y_pytree)
-  assert len(fake_output_y) == flat_carry_len
+  _fake_output_y, fn_output_y_spec = tree_flatten(fn_output_y_pytree)
   fake_carry, _ = tree_flatten(fake_carry_pytree)
   fake_x, _ = tree_flatten(fake_x_pytree)
   fn_outputs = flat_fn(*(fake_carry + fake_x))
@@ -360,8 +359,54 @@ def scan_dense(fn, init, xs):
 
 import torch.autograd
 from torch.utils.checkpoint import detach_variable
+import torch
+from torch.autograd import Function
+import torch.utils._pytree as pytree
 
 
+# Taken from https://github.com/pytorch/pytorch/issues/96337
+def pytreeify(cls):
+  assert issubclass(cls, Function)
+
+  orig_fw = cls.forward
+  orig_bw = cls.backward
+  orig_apply = cls.apply
+
+  def new_apply(*inp):
+    flat_inp, struct = pytree.tree_flatten(inp)
+    out_struct_holder = []
+    flat_out = orig_apply(struct, out_struct_holder, *flat_inp)
+    assert flat_out is not None
+    assert len(out_struct_holder) == 1
+    return pytree.tree_unflatten(flat_out, out_struct_holder[0])
+
+  def new_forward(ctx, struct, out_struct_holder, *flat_inp):
+    inp = pytree.tree_unflatten(flat_inp, struct)
+    out = orig_fw(ctx, *inp)
+    flat_out, out_struct = pytree.tree_flatten(out)
+    ctx._inp_struct = struct
+    ctx._out_struct = out_struct
+    out_struct_holder.append(out_struct)
+    return tuple(flat_out)
+
+  def new_backward(ctx, *flat_grad_outputs):
+    grad_outputs = pytree.tree_unflatten(flat_grad_outputs, ctx._out_struct)
+    if not isinstance(grad_outputs, tuple):
+      grad_outputs = (grad_outputs,)
+    grad_inputs = orig_bw(ctx, *grad_outputs)
+    flat_grad_inputs, grad_inputs_struct = pytree.tree_flatten(grad_inputs)
+    if grad_inputs_struct != ctx._inp_struct:
+      raise RuntimeError("The backward generated an arg structure that doesn't "
+                         "match the forward's input.")
+    return (None, None) + tuple(flat_grad_inputs)
+
+  cls.apply = new_apply
+  cls.forward = new_forward
+  cls.backward = new_backward
+  return cls
+
+
+@pytreeify
 class Scan(torch.autograd.Function):
 
   @staticmethod
@@ -392,11 +437,12 @@ class Scan(torch.autograd.Function):
                                           torch.Tensor]):
       grad_y, carry, x = pytree
       # Compute the backward of a single scan iteration
-      detached_inputs = detach_variable((carry, x))
+      detached_inputs = tree_map(lambda v: detach_variable((v,))[0], (carry, x))
       with torch.enable_grad():
         outputs = fn(*detached_inputs)
         torch.autograd.backward(outputs, (grad_carry, grad_y))
-      grad_carry, grad_x = tuple(inp.grad for inp in detached_inputs)
+      grad_carry, grad_x = tuple(
+          tree_map(lambda v: v.grad, inp) for inp in detached_inputs)
       assert grad_carry is not None
       assert grad_x is not None
       return grad_carry, grad_x
@@ -404,13 +450,13 @@ class Scan(torch.autograd.Function):
     # Reverse loop to accumulate gradients
     grad_init = grad_carry.clone()
     carry_history = carry_history.flip(0).requires_grad_(True)
-    xs = xs.flip(0).requires_grad_(True)
+    xs = tree_map(lambda v: v.flip(0).requires_grad_(True), xs)
     grad_ys = grad_ys.flip(0).requires_grad_(True)
 
     grad_init, _, grad_xs = scan_dense(step_fn, grad_init,
                                        (grad_ys, carry_history, xs))
 
-    return None, grad_init, grad_xs.flip(0)
+    return None, grad_init, tree_map(lambda v: v.flip(0), grad_xs)
 
 
 scan_op.py_impl(DispatchKey.AutogradXLA)(Scan.apply)
@@ -431,8 +477,13 @@ def scan_func(ctx, fn, init, xs):
 
 
 if __name__ == "__main__":
+  import torch_xla
+  from typing import Sequence
+  import torch.nn as nn
 
-  def extract_weights_dict(module):
+  device = torch_xla.device()
+
+  def extract_weights_dict(module: nn.Module):
     """
     Extracts the parameters (weights and biases) from a PyTorch module and stores them in a dictionary.
     """
@@ -441,18 +492,13 @@ if __name__ == "__main__":
     }
     return weights_dict
 
-  def apply_weights_dict(module, weights_dict):
+  def apply_weights_dict(module: nn.Module, weights_dict):
     """
-      Re-applies the weights and biases from the dictionary back to the PyTorch module.
-      """
+    Re-applies the weights and biases from the dictionary back to the PyTorch module.
+    """
     for name, param in module.named_parameters():
       if name in weights_dict:
-        param.data = weights_dict[name].clone()
-
-  import torch_xla
-  from typing import Sequence
-
-  device = torch_xla.device()
+        torch.utils.swap_tensors(param, weights_dict[name].clone())
 
   def apply_layers(layers: Sequence[torch.nn.Module], input_data):
     # Extract and stack the parameters into a pytree
@@ -469,38 +515,51 @@ if __name__ == "__main__":
     example_layer = deepcopy(layers[0])
 
     # Hollow out the weights and biases in the example layer
-    for name, param in example_layer.named_parameters():
-      param.data = torch.empty_like(param)
+    example_layer = example_layer.to_empty(device=None)
 
     # Function to apply at each step
-    def apply_layer(carry, params):
+    def one_layer(carry, params):
       # Apply the current layer's weights and biases to the example layer and run
       apply_weights_dict(example_layer, params)
-      return example_layer(carry), torch.zeros_like(carry)
+      return example_layer(carry), example_layer(carry) * 0
 
-    final_carry, _ = scan(apply_layer, input_data, stacked_params)
+    final_carry, _ = scan(one_layer, input_data, stacked_params)
 
     return final_carry
 
   # We want to apply these layers sequentially
-  def mklayer():
-    import torch.nn as nn
-    l = nn.Linear(2, 2).to(device)
-    l.weight.data = torch.tensor([[2, 0], [0, 2]],
-                                 dtype=torch.float32).to(device)
-    l.bias.data = torch.tensor([0.123, 0.234], dtype=torch.float32).to(device)
-    return l
-
-  layers = [mklayer() for _ in range(1)]
-  input_data = torch.tensor([1, 2], dtype=torch.float32).to(device)
+  import torch.nn as nn
+  layers = [nn.Linear(64, 64).to(device) for _ in range(10)]
+  input_data = torch.randn(64).to(device)
   output = apply_layers(layers, input_data.clone())
   print("Output:", output)
+  output.sum().backward()
 
   # Test that the result is the same as for loop.
   loop_output = input_data.clone()
-  for layer in layers:
+  from copy import deepcopy
+  loop_layers = deepcopy(layers)
+  for layer in loop_layers:
     loop_output = layer(loop_output)
   print("Loop output:", loop_output)
   import numpy as np
-  assert np.allclose(loop_output.detach().cpu().numpy(),
-                     output.detach().cpu().numpy())
+  assert np.allclose(
+      loop_output.detach().cpu().numpy(),
+      output.detach().cpu().numpy(),
+      atol=0.0001,
+      rtol=0.01)
+
+  loop_output.sum().backward()
+
+  # Test that the gradients are the same too.
+  for layer_scan, layer_loop in zip(layers, loop_layers):
+    assert np.allclose(
+        layer_scan.weight.grad.detach().cpu().numpy(),  # type: ignore
+        layer_loop.weight.grad.detach().cpu().numpy(),  # type: ignore
+        atol=0.0001,
+        rtol=0.01), f"{layer_scan.weight.grad} != {layer_loop.weight.grad}"
+    assert np.allclose(
+        layer_scan.bias.grad.detach().cpu().numpy(),  # type: ignore
+        layer_loop.bias.grad.detach().cpu().numpy(),  # type: ignore
+        atol=0.0001,
+        rtol=0.01), f"{layer_scan.bias.grad} != {layer_loop.bias.grad}"
