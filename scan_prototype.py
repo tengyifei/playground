@@ -5,7 +5,7 @@ import torch
 import torch_xla.core.xla_builder as xb
 from torch._ops import HigherOrderOperator
 from torch._C import DispatchKey
-from torch.utils._pytree import tree_map, PyTree, tree_flatten, tree_unflatten
+from torch.utils._pytree import tree_map, tree_flatten, tree_unflatten, tree_iter
 
 import torch_xla
 
@@ -45,6 +45,50 @@ def scan(
     init: Carry,
     xs: X,
 ) -> tuple[Carry, Y]:
+  """Apply a function over leading dimension of tensors while carrying along state.
+
+  This is similar to the JAX `jax.lax.scan` function found in [1].
+
+  You may use it to loop over the leading dimension of tensors efficiently. If `xs`
+  is a single tensor, this function is roughly equal to the following Python code:
+
+    def scan(fn, init, xs):
+      ys = []
+      carry = init
+      for i in len(range(xs.size(0))):
+        carry, y = fn(carry, xs[i])
+        ys.append(y)
+      return carry, torch.stack(ys, dim=0)
+
+  In the general case, `Carry`, `X`, and `Y` can be arbitrary PyTrees. This function
+  will iterate through the leading dimension of every leaf element of `xs` simultaneously,
+  and pass a slice of those elements to `fn` as another PyTree. This means you may
+  scan over multiple tensors and produce multiple output tensors at once.
+
+  Args:
+
+    fn: a Python callable that accepts two PyTrees of tensors: the carry object and the
+        slices of `xs` along its leading dimension. It should return two PyTrees: the carry
+        object and the slices of the output. The returned carry object will be passed to
+        the next invocation of `fn`.
+
+    init: the initial carry object passed to the first invocation of `fn`.
+
+    xs: the input PyTree to scan over. If `xs` is a tensor, then `fn` will get slices along
+        the leading dimension (`xs[i]`). If `xs` is some other PyTree (e.g. tuple of
+        tensor), `fn` will get PyTrees of slices. In that case the leading dimension size
+        of the leaves in the PyTree must be the same.
+
+  Returns:
+
+    (carry, ys): A tuple where `carry` is the last carry object returned by `fn`, and
+    `ys` is a PyTree with the same structure as `xs`, but where the leaves are formed
+    by stacking the leaf outputs of `fn` respectively. This means if your `fn` returns
+    `(carry, (y1, y2))` then this function will return
+    `(carry, (torch.stack(all_y1), torch.stack(all_y2)))`.
+
+  [1]: https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.scan.html
+  """
   carry, carry_history, ys = scan_op(fn, init, xs)
   return carry, ys
 
@@ -195,7 +239,7 @@ def scan_dense(fn, init, xs):
     ys = seq[flat_carry_len * 2 + flat_xs_len:]
     return carry, xs, fn_carry_history, ys
 
-  xs_len = fake_x[0].shape[0]
+  xs_len = next(iter(tree_iter(xs))).size(0)
   num_iters = torch.tensor(xs_len, device=device)
   ys = [
       torch.zeros((xs_len, *fn_y_shape), device=device)
@@ -387,39 +431,76 @@ def scan_func(ctx, fn, init, xs):
 
 
 if __name__ == "__main__":
-  import numpy as np
+
+  def extract_weights_dict(module):
+    """
+    Extracts the parameters (weights and biases) from a PyTorch module and stores them in a dictionary.
+    """
+    weights_dict = {
+        name: param.clone() for name, param in module.named_parameters()
+    }
+    return weights_dict
+
+  def apply_weights_dict(module, weights_dict):
+    """
+      Re-applies the weights and biases from the dictionary back to the PyTorch module.
+      """
+    for name, param in module.named_parameters():
+      if name in weights_dict:
+        param.data = weights_dict[name].clone()
+
+  import torch_xla
+  from typing import Sequence
+
   device = torch_xla.device()
 
-  # A simple function to be applied at each step of the scan
-  def step_fn(carry, x):
-    new_carry = carry + x
-    y = carry * x
-    return new_carry, y
+  def apply_layers(layers: Sequence[torch.nn.Module], input_data):
+    # Extract and stack the parameters into a pytree
+    params = [extract_weights_dict(layer) for layer in layers]
+    stacked_params = tree_map(lambda *tensors: torch.stack(tensors, dim=0),
+                              *params)
 
-  # Initial carry (let's make it a scalar with requires_grad)
-  init_carry = torch.tensor([1.0, 1.0, 1.0], requires_grad=True, device=device)
+    # Empty layers case.
+    if not params:
+      return input_data
 
-  # Example input tensor of shape (batch_size, features)
-  xs = torch.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]],
-                    requires_grad=True,
-                    device=device)
+    # Use the first layer as the example/template layer
+    from copy import deepcopy
+    example_layer = deepcopy(layers[0])
 
-  # Use the scan function
-  final_carry, ys = scan(step_fn, init_carry, xs)
+    # Hollow out the weights and biases in the example layer
+    for name, param in example_layer.named_parameters():
+      param.data = torch.empty_like(param)
 
-  # Loss for backward pass (sum of the outputs)
-  loss = ys.sum()
-  loss.backward()
-  torch_xla.sync()
+    # Function to apply at each step
+    def apply_layer(carry, params):
+      # Apply the current layer's weights and biases to the example layer and run
+      apply_weights_dict(example_layer, params)
+      return example_layer(carry), torch.zeros_like(carry)
 
-  print("init_carry grad", init_carry.grad)
-  print("xs grad", xs.grad)
+    final_carry, _ = scan(apply_layer, input_data, stacked_params)
 
-  assert init_carry.grad is not None
-  assert xs.grad is not None
+    return final_carry
 
-  assert np.allclose(init_carry.grad.detach().cpu().numpy(),
-                     np.array([12., 15., 18.]))
+  # We want to apply these layers sequentially
+  def mklayer():
+    import torch.nn as nn
+    l = nn.Linear(2, 2).to(device)
+    l.weight.data = torch.tensor([[2, 0], [0, 2]],
+                                 dtype=torch.float32).to(device)
+    l.bias.data = torch.tensor([0.123, 0.234], dtype=torch.float32).to(device)
+    return l
 
-  assert np.allclose(xs.grad.detach().cpu().numpy(),
-                     np.array([[12., 14., 16.], [9., 11., 13.], [6., 8., 10.]]))
+  layers = [mklayer() for _ in range(1)]
+  input_data = torch.tensor([1, 2], dtype=torch.float32).to(device)
+  output = apply_layers(layers, input_data.clone())
+  print("Output:", output)
+
+  # Test that the result is the same as for loop.
+  loop_output = input_data.clone()
+  for layer in layers:
+    loop_output = layer(loop_output)
+  print("Loop output:", loop_output)
+  import numpy as np
+  assert np.allclose(loop_output.detach().cpu().numpy(),
+                     output.detach().cpu().numpy())

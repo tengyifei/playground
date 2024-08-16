@@ -1,0 +1,187 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    html, body {height: 100%; text-align: center;}
+    #rendered {height: 70%; width: 80%; border:1px solid black; margin: auto; }
+    #label {width: 80%; margin: auto;}
+    #performance_note { font-size: small; color: gray; }
+    #frames_list {
+      list-style: none; text-align: left; height: 20%; overflow: scroll;
+    }
+    #frames_list   li { padding: 0.2em; margin: 0.2em; }
+    .selected { background-color: #e0e0e0; }
+    .selected a { color: black; text-decoration: none; }
+    #rendered svg { height: 100% !important; width: 100% !important; }
+  </style>
+</head>
+<body>
+  <script src="https://www.gstatic.com/external_hosted/hpcc_js_wasm/index.min.js"
+      integrity="sha384-LigJPbR3TOfU/Xbb+PjiN1dGJYPweLk7kiGnaMgmxnUmKWaCFKbb5tH6iLlyVhPZ"
+      crossorigin="anonymous"></script>
+  <script src="https://www.gstatic.com/external_hosted/svg_pan_zoom/svg-pan-zoom.js">
+  </script>
+
+  <title>Fusion Explorer: SyncTensorsGraph.100_SyncTensorsGraph.100</title>
+  <div id='rendered'><center>Loading...</center></div>
+  <ul id='frames_list'></ul>
+  <p>Use j/k for keyboard navigation.</p>
+  <p id='performance_note'>Loading data...</p>
+  <script>
+  <!--
+  const renderCache = {};
+
+  const cssregex = new RegExp('stylesheet=<([^]*)\n>\n', 'gm');
+  const hpccWasm = window["@hpcc-js/wasm"];
+
+  const getIdFromHash = () => {
+    let hash = window.location.hash;
+    if (hash.indexOf('frame') == -1) {
+      return 0;
+    }
+    return parseInt(window.location.hash.substring('#frame'.length, window.location.hash.length));
+  }
+
+  const renderCurrentFrame = () => {
+    if (!window.loaded) { return; }
+    const frames_list = document.getElementById('frames_list');
+    const currId = getIdFromHash();
+
+    for (let selected of frames_list.getElementsByClassName('selected')) {
+        selected.classList.remove('selected');
+    }
+
+    const selected = frames_list.children[currId];
+    selected.classList.add('selected');
+    selected.scrollIntoView();
+
+    const frame = frames[currId];
+    const dot_ptr = frame[0];
+    let dot_txt = window.dots[dot_ptr];
+    const label = frame[1];
+    document.getElementById('performance_note').innerText = "Rendering...";
+    const results = cssregex.exec(dot_txt)
+    let css_data = ''
+    if (results !== null) {
+        css_data = results[1].replace(/\s*data:.*\s*,/,''); // Strip content-type field.
+        // CSS inside DOT is URL-escaped, so we must unescape it
+        // before we can insert it into SVG.
+        css_data = unescape(css_data);
+        dot_txt = dot_txt.replace(cssregex, ''); // Remove the stylesheet
+    }
+
+    let render_start = performance.now();
+    const render_callback = svg => {
+      renderCache[dot_ptr] = svg;
+      var area = document.getElementById('rendered');
+      area.innerHTML = `${svg}<style>${css_data}</style>`;
+      var panzoom = svgPanZoom(area.children[0], {
+          zoomEnabled: true, controlIconsEnabled: true, maxZoom: 200, });
+      var to_highlight = frame[2].length ?
+        document.querySelector(`${frame[2]}`) : null;
+      if (to_highlight) {
+        to_highlight.style.setProperty('fill', 'red');
+      }
+      document.getElementById('performance_note').innerText =
+        `Rendering took ${(performance.now() - render_start).toFixed(2)}ms`;
+
+      // Change cursor.
+      let text_nodes = document.getElementsByTagName("text");
+      for (var el of text_nodes) {
+        if (title_to_id.has(el.innerHTML)) {
+          el.style.cursor = "pointer";
+        }
+      }
+    };
+    if (renderCache[dot_ptr]) {
+      render_callback(renderCache[dot_ptr]);
+    } else {
+      hpccWasm.graphviz.layout(dot_txt, "svg", "dot").then(render_callback);
+    }
+  };
+
+  const update = (delta) => {
+    let currId = getIdFromHash();
+    currId = (currId + delta + frames.length) % frames.length;
+    window.location.hash = `#frame${currId}`
+  };
+
+  const renderFrameList = () => {
+    const currId = getIdFromHash();
+    const frames_list = document.getElementById('frames_list');
+    for (let i=0; i<frames.length; i++) {
+      const f = frames[i];
+      let frame_descr = f[1];
+      const rendered = document.createElement("li");
+      if (frame_descr == "") {
+        frame_descr = "Unnamed state";
+      }
+      rendered.innerHTML = `<a href="#frame${i}">${frame_descr}</a>`;
+      if (i == currId) {
+        rendered.classList.add('selected');
+      }
+      frames_list.appendChild(rendered);
+    }
+  };
+
+  const decompress = async function(compressed) {
+    const ds = new DecompressionStream('gzip');
+    const in_fetch = await fetch(`data:application/octet-stream;base64,${compressed}`);
+    const in_blob = await in_fetch.blob();
+    const out_stream = in_blob.stream().pipeThrough(ds);
+    const out_blob = await new Response(out_stream).blob();
+    return await out_blob.text();
+  }
+
+  const dots_compressed = "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";
+  const frames = [[0, "SyncTensorsGraph.100_SyncTensorsGraph.100", ""]];
+  let loaded = false;
+
+  window.addEventListener('hashchange', () => {
+    renderCurrentFrame();
+  });
+
+  window.addEventListener("keydown", (event) => {
+    if (event.defaultPrevented) {
+      return;
+    }
+    if (event.key == "j") {
+      update(1);
+    } else if (event.key == "k") {
+      update(-1);
+    } else {
+      return;
+    }
+    event.preventDefault();
+  }, true);
+
+  document.addEventListener("DOMContentLoaded", () => {
+    decompress(dots_compressed).then(text => {
+      window.dots = JSON.parse(text);
+      window.loaded = true;
+      renderFrameList();
+      renderCurrentFrame();
+    });
+
+    window.title_to_id = new Map();
+    for (let i=0; i < frames.length; i++) {
+       title_to_id.set(frames[i][1], i);
+     }
+
+    // Navigate to next elements on click.
+    document.addEventListener("click", (event) => {
+      let txt = event.target.innerHTML;
+      if (title_to_id.has(txt)) {
+        let id = title_to_id.get(txt);
+        window.location.hash = `#frame${id}`;
+      }
+    });
+  });
+
+  //-->
+  </script>
+  </body>
+</html>
+  

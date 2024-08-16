@@ -145,3 +145,70 @@ def test_scan_pytree_forward(scan_fn):
       expected_ys_2), f"Outputs ys[1] mismatch: {ys_2_np} != {expected_ys_2}"
 
   print("All assertions passed!")
+
+
+def test_scan_linear_layers():
+  import torch_xla
+  from typing import Sequence
+
+  device = torch_xla.device()
+
+  def extract_weights_dict(module):
+    """
+    Extracts the parameters (weights and biases) from a PyTorch module and stores them in a dictionary.
+    """
+    weights_dict = {
+        name: param.clone() for name, param in module.named_parameters()
+    }
+    return weights_dict
+
+  def apply_weights_dict(module, weights_dict):
+    """
+    Re-applies the weights and biases from the dictionary back to the PyTorch module.
+    """
+    for name, param in module.named_parameters():
+      if name in weights_dict:
+        param.data = weights_dict[name].clone()
+
+  def apply_layers(layers: Sequence[torch.nn.Module], input_data):
+    # Extract and stack the parameters into a pytree
+    params = [extract_weights_dict(layer) for layer in layers]
+    stacked_params = tree_map(lambda *tensors: torch.stack(tensors, dim=0),
+                              *params)
+
+    # Empty layers case.
+    if not params:
+      return input_data
+
+    # Use the first layer as the example/template layer
+    from copy import deepcopy
+    example_layer = deepcopy(layers[0])
+
+    # Hollow out the weights and biases in the example layer
+    for name, param in example_layer.named_parameters():
+      param.data = torch.empty_like(param)
+
+    # Function to apply at each step
+    def one_layer(carry, params):
+      # Apply the current layer's weights and biases to the example layer and run
+      apply_weights_dict(example_layer, params)
+      return example_layer(carry), torch.zeros_like(carry)
+
+    final_carry, _ = scan(one_layer, input_data, stacked_params)
+
+    return final_carry
+
+  # We want to apply these layers sequentially
+  import torch.nn as nn
+  layers = [nn.Linear(64, 64).to(device) for _ in range(1)]
+  input_data = torch.randn(64).to(device)
+  output = apply_layers(layers, input_data.clone())
+  print("Output:", output)
+
+  # Test that the result is the same as for loop.
+  loop_output = input_data.clone()
+  for layer in layers:
+    loop_output = layer(loop_output)
+  print("Loop output:", loop_output)
+  assert np.allclose(loop_output.detach().cpu().numpy(),
+                     output.detach().cpu().numpy())

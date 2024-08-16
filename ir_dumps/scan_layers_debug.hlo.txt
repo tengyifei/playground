@@ -1,0 +1,112 @@
+HloModule SyncTensorsGraph.100, entry_computation_layout={(f32[2]{0}, f32[2,2]{1,0}, f32[2]{0}, s64[])->(f32[2]{0})}
+
+PyLoweringContext.19 {
+  p2.24 = f32[2]{0} parameter(2)
+  reshape.25 = f32[1,2]{1,0} reshape(p2.24)
+  p1.22 = f32[2,2]{1,0} parameter(1)
+  transpose.23 = f32[2,2]{0,1} transpose(p1.22), dimensions={1,0}
+  dot.26 = f32[1,2]{1,0} dot(reshape.25, transpose.23), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+  reshape.27 = f32[2]{0} reshape(dot.26)
+  p0.21 = f32[2]{0} parameter(0)
+  constant.20 = f32[] constant(1)
+  broadcast.28 = f32[2]{0} broadcast(constant.20), dimensions={}
+  multiply.29 = f32[2]{0} multiply(p0.21, broadcast.28)
+  add.30 = f32[2]{0} add(reshape.27, multiply.29)
+  reshape.31 = f32[1,2]{1,0} reshape(add.30)
+  reshape.32 = f32[2]{0} reshape(reshape.31)
+  constant.33 = f32[] constant(0)
+  reshape.34 = f32[1]{0} reshape(constant.33)
+  broadcast.35 = f32[1]{0} broadcast(reshape.34), dimensions={0}
+  reshape.36 = f32[] reshape(broadcast.35)
+  broadcast.37 = f32[2]{0} broadcast(reshape.36), dimensions={}
+  ROOT tuple.38 = (f32[2]{0}, f32[2]{0}) tuple(reshape.32, broadcast.37)
+} // PyLoweringContext.19
+
+Body.39 {
+  p0.40 = (s64[], f32[2]{0}, f32[1,2,2]{2,1,0}, f32[1,2]{1,0}, f32[2,2]{1,0}, /*index=5*/f32[2,2]{1,0}) parameter(0)
+  get-tuple-element.41 = s64[] get-tuple-element(p0.40), index=0
+  constant.48 = s64[] constant(1)
+  subtract.71 = s64[] subtract(get-tuple-element.41, constant.48)
+  get-tuple-element.44 = f32[1,2]{1,0} get-tuple-element(p0.40), index=3
+  constant.47 = s64[] constant(2)
+  subtract.49 = s64[] subtract(constant.47, get-tuple-element.41)
+  constant.56 = s64[] constant(0)
+  broadcast.57 = s64[] broadcast(constant.56), dimensions={}
+  dynamic-slice.58 = f32[1,2]{1,0} dynamic-slice(get-tuple-element.44, subtract.49, broadcast.57), dynamic_slice_sizes={1,2}
+  reshape.59 = f32[2]{0} reshape(dynamic-slice.58)
+  get-tuple-element.43 = f32[1,2,2]{2,1,0} get-tuple-element(p0.40), index=2
+  constant.50 = s64[] constant(0)
+  broadcast.51 = s64[] broadcast(constant.50), dimensions={}
+  constant.52 = s64[] constant(0)
+  broadcast.53 = s64[] broadcast(constant.52), dimensions={}
+  dynamic-slice.54 = f32[1,2,2]{2,1,0} dynamic-slice(get-tuple-element.43, subtract.49, broadcast.51, broadcast.53), dynamic_slice_sizes={1,2,2}
+  reshape.55 = f32[2,2]{1,0} reshape(dynamic-slice.54)
+  get-tuple-element.42 = f32[2]{0} get-tuple-element(p0.40), index=1
+  call.64 = (f32[2]{0}, f32[2]{0}) call(reshape.59, reshape.55, get-tuple-element.42), to_apply=PyLoweringContext.19
+  get-tuple-element.65 = f32[2]{0} get-tuple-element(call.64), index=0
+  get-tuple-element.45 = f32[2,2]{1,0} get-tuple-element(p0.40), index=4
+  broadcast.60 = f32[1,2]{1,0} broadcast(get-tuple-element.42), dimensions={1}
+  constant.61 = s64[] constant(0)
+  broadcast.62 = s64[] broadcast(constant.61), dimensions={}
+  dynamic-update-slice.63 = f32[2,2]{1,0} dynamic-update-slice(get-tuple-element.45, broadcast.60, subtract.49, broadcast.62)
+  get-tuple-element.46 = f32[2,2]{1,0} get-tuple-element(p0.40), index=5
+  get-tuple-element.66 = f32[2]{0} get-tuple-element(call.64), index=1
+  broadcast.67 = f32[1,2]{1,0} broadcast(get-tuple-element.66), dimensions={1}
+  constant.68 = s64[] constant(0)
+  broadcast.69 = s64[] broadcast(constant.68), dimensions={}
+  dynamic-update-slice.70 = f32[2,2]{1,0} dynamic-update-slice(get-tuple-element.46, broadcast.67, subtract.49, broadcast.69)
+  ROOT tuple.72 = (s64[], f32[2]{0}, f32[1,2,2]{2,1,0}, f32[1,2]{1,0}, f32[2,2]{1,0}, /*index=5*/f32[2,2]{1,0}) tuple(subtract.71, get-tuple-element.65, get-tuple-element.43, get-tuple-element.44, dynamic-update-slice.63, /*index=5*/dynamic-update-slice.70)
+} // Body.39
+
+Condition.73 {
+  p0.74 = (s64[], f32[2]{0}, f32[1,2,2]{2,1,0}, f32[1,2]{1,0}, f32[2,2]{1,0}, /*index=5*/f32[2,2]{1,0}) parameter(0)
+  get-tuple-element.76 = f32[2]{0} get-tuple-element(p0.74), index=1
+  get-tuple-element.77 = f32[1,2,2]{2,1,0} get-tuple-element(p0.74), index=2
+  get-tuple-element.78 = f32[1,2]{1,0} get-tuple-element(p0.74), index=3
+  get-tuple-element.79 = f32[2,2]{1,0} get-tuple-element(p0.74), index=4
+  get-tuple-element.80 = f32[2,2]{1,0} get-tuple-element(p0.74), index=5
+  get-tuple-element.75 = s64[] get-tuple-element(p0.74), index=0
+  constant.81 = s64[] constant(0)
+  ROOT compare.82 = pred[] compare(get-tuple-element.75, constant.81), direction=GT
+} // Condition.73
+
+scan.83 {
+  p0.84 = s64[] parameter(0)
+  p1.85 = f32[2]{0} parameter(1)
+  p2.86 = f32[1,2,2]{2,1,0} parameter(2)
+  p3.87 = f32[1,2]{1,0} parameter(3)
+  p4.88 = f32[2,2]{1,0} parameter(4)
+  p5.89 = f32[2,2]{1,0} parameter(5)
+  tuple.90 = (s64[], f32[2]{0}, f32[1,2,2]{2,1,0}, f32[1,2]{1,0}, f32[2,2]{1,0}, /*index=5*/f32[2,2]{1,0}) tuple(p0.84, p1.85, p2.86, p3.87, p4.88, /*index=5*/p5.89)
+  ROOT while.91 = (s64[], f32[2]{0}, f32[1,2,2]{2,1,0}, f32[1,2]{1,0}, f32[2,2]{1,0}, /*index=5*/f32[2,2]{1,0}) while(tuple.90), condition=Condition.73, body=Body.39
+} // scan.83
+
+ENTRY SyncTensorsGraph.100 {
+  p3.18 = s64[] parameter(3)
+  p2.17 = f32[2]{0} parameter(2)
+  p1.14 = f32[2,2]{1,0} parameter(1)
+  reshape.15 = f32[1,2,2]{2,1,0} reshape(p1.14)
+  concatenate.16 = f32[1,2,2]{2,1,0} concatenate(reshape.15), dimensions={0}
+  p0.11 = f32[2]{0} parameter(0)
+  reshape.12 = f32[1,2]{1,0} reshape(p0.11)
+  concatenate.13 = f32[1,2]{1,0} concatenate(reshape.12), dimensions={0}
+  constant.6 = f32[] constant(0)
+  reshape.7 = f32[1,1]{1,0} reshape(constant.6)
+  broadcast.8 = f32[1,1]{1,0} broadcast(reshape.7), dimensions={0,1}
+  reshape.9 = f32[] reshape(broadcast.8)
+  broadcast.10 = f32[2,2]{1,0} broadcast(reshape.9), dimensions={}
+  constant.1 = f32[] constant(0)
+  reshape.2 = f32[1,1]{1,0} reshape(constant.1)
+  broadcast.3 = f32[1,1]{1,0} broadcast(reshape.2), dimensions={0,1}
+  reshape.4 = f32[] reshape(broadcast.3)
+  broadcast.5 = f32[2,2]{1,0} broadcast(reshape.4), dimensions={}
+  call.92 = (s64[], f32[2]{0}, f32[1,2,2]{2,1,0}, f32[1,2]{1,0}, f32[2,2]{1,0}, /*index=5*/f32[2,2]{1,0}) call(p3.18, p2.17, concatenate.16, concatenate.13, broadcast.10, /*index=5*/broadcast.5), to_apply=scan.83
+  get-tuple-element.93 = s64[] get-tuple-element(call.92), index=0
+  get-tuple-element.95 = f32[1,2,2]{2,1,0} get-tuple-element(call.92), index=2
+  get-tuple-element.96 = f32[1,2]{1,0} get-tuple-element(call.92), index=3
+  get-tuple-element.97 = f32[2,2]{1,0} get-tuple-element(call.92), index=4
+  get-tuple-element.98 = f32[2,2]{1,0} get-tuple-element(call.92), index=5
+  get-tuple-element.94 = f32[2]{0} get-tuple-element(call.92), index=1
+  ROOT tuple.99 = (f32[2]{0}) tuple(get-tuple-element.94)
+} // SyncTensorsGraph.100
+
