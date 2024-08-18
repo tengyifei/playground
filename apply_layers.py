@@ -38,7 +38,7 @@ def apply_layers(layers: Iterable[torch.nn.Module], input_data):
 
   # Use the first layer as the example/template layer
   from copy import deepcopy
-  example_layer = deepcopy(layers[0])
+  example_layer = deepcopy(next(iter(layers)))
 
   # Hollow out the weights and biases in the example layer
   example_layer = example_layer.to_empty(device=None)
