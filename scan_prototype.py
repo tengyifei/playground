@@ -5,7 +5,7 @@ import torch
 import torch_xla.core.xla_builder as xb
 from torch._ops import HigherOrderOperator
 from torch._C import DispatchKey
-from torch.utils._pytree import tree_map, tree_flatten, tree_unflatten, tree_iter
+from torch.utils._pytree import tree_map, tree_flatten, tree_unflatten, tree_iter, PyTree
 
 import torch_xla
 
@@ -155,17 +155,13 @@ def scan_dense(fn, init, xs):
 
   # `fn` operates on PyTrees and returns PyTrees. However, XLA only understands
   # (lists or tuples of) tensors. So we will craft a `flat_fn` that takes in
-  # flattened PyTrees, internally recreates the desired tree structure, then
-  # calls `fn`. Similar transformation on the return path.
-  def flat_fn(*seq: torch.Tensor) -> Sequence[torch.Tensor]:
+  # flattened PyTrees, internally recreates the desired tree structure, then calls `fn`.
+  def flat_fn(*seq: torch.Tensor) -> Tuple[PyTree, PyTree]:
     carry = seq[:flat_carry_len]
     x = seq[flat_carry_len:]
     carry_pytree = tree_unflatten(carry, carry_spec)
     x_pytree = tree_unflatten(x, xs_spec)
-    carry_pytree, y_pytree = fn(carry_pytree, x_pytree)
-    carry, _ = tree_flatten(carry_pytree)
-    y, _ = tree_flatten(y_pytree)
-    return carry + y
+    return fn(carry_pytree, x_pytree)
 
   # Abstractly trace and lower `fn`.
   # Later we will include `fn_computation` within the while loop body.
@@ -187,15 +183,17 @@ def scan_dense(fn, init, xs):
   device = torch_xla.device()
   fake_carry_pytree = tree_map(make_fake_tensor, init)
   fake_x_pytree = tree_map(lambda v: make_fake_tensor(v[0]), xs)
-  fn_output_carry_pytree, fn_output_y_pytree = fn(fake_carry_pytree,
-                                                  fake_x_pytree)
-  # Later we'll use `fn_output_carry_spec` etc to turn flattened outputs back to a PyTree.
-  _, fn_output_carry_spec = tree_flatten(fn_output_carry_pytree)
-  assert fn_output_carry_spec == carry_spec
-  _fake_output_y, fn_output_y_spec = tree_flatten(fn_output_y_pytree)
   fake_carry, _ = tree_flatten(fake_carry_pytree)
   fake_x, _ = tree_flatten(fake_x_pytree)
-  fn_outputs = flat_fn(*(fake_carry + fake_x))
+  fn_output_carry_pytree, fn_output_y_pytree = flat_fn(*(fake_carry + fake_x))
+
+  # Later we'll use `fn_output_carry_spec` etc to turn flattened outputs back to a PyTree.
+  fn_output_carry, fn_output_carry_spec = tree_flatten(fn_output_carry_pytree)
+  assert fn_output_carry_spec == carry_spec
+  fn_output_y, fn_output_y_spec = tree_flatten(fn_output_y_pytree)
+  flat_y_len = len(fn_output_y)
+  fn_outputs = fn_output_carry + fn_output_y
+
   fn_ctx = torch_xla._XLAC.lowering.LoweringContext()
   fn_ctx.set_name_string("my_ctx")
   fn_ctx.build(list(fn_outputs))
@@ -207,6 +205,7 @@ def scan_dense(fn, init, xs):
   # Figure out the shape of `ys` from the abstract tracing.
   fn_carry_out = fn_outputs[:flat_carry_len]
   fn_y_out = fn_outputs[flat_carry_len:]
+  assert flat_carry_len + flat_y_len == len(fn_outputs)
   fn_carry_shapes = [v.shape for v in fn_carry_out]
   fn_y_shapes = [v.shape for v in fn_y_out]
   for fn_carry_shape, init_leaf in zip(fn_carry_shapes, flat_init):
@@ -337,6 +336,7 @@ def scan_dense(fn, init, xs):
     result = call_fn_computation(carry, x, additional_inputs)
     for i in range(flat_carry_len):
       carry[i] = result.get_tuple_element(i)
+    for i in range(flat_y_len):
       y = result.get_tuple_element(i + flat_carry_len)
       ys[i] = dynamic_update_slice(ys[i], y, idx)
     return (num_iters - one,) + pack(carry, xs, fn_carry_history, ys)
@@ -433,18 +433,20 @@ class Scan(torch.autograd.Function):
     carry_history = tree_unflatten(tensors_list[:flat_carry_len], carry_spec)
     xs = tree_unflatten(tensors_list[flat_carry_len:], xs_spec)
 
+    def detach_tensor(inp: torch.Tensor) -> torch.Tensor:
+      x = inp.clone().detach()
+      x.requires_grad = inp.requires_grad
+      return x
+
     def step_fn(grad_carry, pytree: Tuple[torch.Tensor, torch.Tensor,
                                           torch.Tensor]):
       grad_y, carry, x = pytree
       # Compute the backward of a single scan iteration
-      detached_inputs = tree_map(lambda v: detach_variable((v,))[0], (carry, x))
+      detached_inputs = tree_map(detach_tensor, (carry, x))
       with torch.enable_grad():
         outputs = fn(*detached_inputs)
         torch.autograd.backward(outputs, (grad_carry, grad_y))
-      grad_carry, grad_x = tuple(
-          tree_map(lambda v: v.grad, inp) for inp in detached_inputs)
-      assert grad_carry is not None
-      assert grad_x is not None
+      grad_carry, grad_x = tree_map(lambda v: v.grad, detached_inputs)
       return grad_carry, grad_x
 
     # Reverse loop to accumulate gradients
@@ -455,7 +457,6 @@ class Scan(torch.autograd.Function):
 
     grad_init, _, grad_xs = scan_dense(step_fn, grad_init,
                                        (grad_ys, carry_history, xs))
-
     return None, grad_init, tree_map(lambda v: v.flip(0), grad_xs)
 
 
@@ -477,89 +478,5 @@ def scan_func(ctx, fn, init, xs):
 
 
 if __name__ == "__main__":
-  import torch_xla
-  from typing import Sequence
-  import torch.nn as nn
-
-  device = torch_xla.device()
-
-  def extract_weights_dict(module: nn.Module):
-    """
-    Extracts the parameters (weights and biases) from a PyTorch module and stores them in a dictionary.
-    """
-    weights_dict = {
-        name: param.clone() for name, param in module.named_parameters()
-    }
-    return weights_dict
-
-  def apply_weights_dict(module: nn.Module, weights_dict):
-    """
-    Re-applies the weights and biases from the dictionary back to the PyTorch module.
-    """
-    for name, param in module.named_parameters():
-      if name in weights_dict:
-        torch.utils.swap_tensors(param, weights_dict[name].clone())
-
-  def apply_layers(layers: Sequence[torch.nn.Module], input_data):
-    # Extract and stack the parameters into a pytree
-    params = [extract_weights_dict(layer) for layer in layers]
-    stacked_params = tree_map(lambda *tensors: torch.stack(tensors, dim=0),
-                              *params)
-
-    # Empty layers case.
-    if not params:
-      return input_data
-
-    # Use the first layer as the example/template layer
-    from copy import deepcopy
-    example_layer = deepcopy(layers[0])
-
-    # Hollow out the weights and biases in the example layer
-    example_layer = example_layer.to_empty(device=None)
-
-    # Function to apply at each step
-    def one_layer(carry, params):
-      # Apply the current layer's weights and biases to the example layer and run
-      apply_weights_dict(example_layer, params)
-      return example_layer(carry), example_layer(carry) * 0
-
-    final_carry, _ = scan(one_layer, input_data, stacked_params)
-
-    return final_carry
-
-  # We want to apply these layers sequentially
-  import torch.nn as nn
-  layers = [nn.Linear(64, 64).to(device) for _ in range(10)]
-  input_data = torch.randn(64).to(device)
-  output = apply_layers(layers, input_data.clone())
-  print("Output:", output)
-  output.sum().backward()
-
-  # Test that the result is the same as for loop.
-  loop_output = input_data.clone()
-  from copy import deepcopy
-  loop_layers = deepcopy(layers)
-  for layer in loop_layers:
-    loop_output = layer(loop_output)
-  print("Loop output:", loop_output)
-  import numpy as np
-  assert np.allclose(
-      loop_output.detach().cpu().numpy(),
-      output.detach().cpu().numpy(),
-      atol=0.0001,
-      rtol=0.01)
-
-  loop_output.sum().backward()
-
-  # Test that the gradients are the same too.
-  for layer_scan, layer_loop in zip(layers, loop_layers):
-    assert np.allclose(
-        layer_scan.weight.grad.detach().cpu().numpy(),  # type: ignore
-        layer_loop.weight.grad.detach().cpu().numpy(),  # type: ignore
-        atol=0.0001,
-        rtol=0.01), f"{layer_scan.weight.grad} != {layer_loop.weight.grad}"
-    assert np.allclose(
-        layer_scan.bias.grad.detach().cpu().numpy(),  # type: ignore
-        layer_loop.bias.grad.detach().cpu().numpy(),  # type: ignore
-        atol=0.0001,
-        rtol=0.01), f"{layer_scan.bias.grad} != {layer_loop.bias.grad}"
+  import pytest
+  pytest.main(["-v", "playground/"])
