@@ -1,0 +1,368 @@
+[ScheduleSyncTensorsGraph]
+TensorsGraphInfo:
+  _str_intern (/usr/local/lib/python3.10/site-packages/torch/_tensor_str.py:440)
+  _str (/usr/local/lib/python3.10/site-packages/torch/_tensor_str.py:708)
+  __repr__ (/usr/local/lib/python3.10/site-packages/torch/_tensor.py:464)
+  _functorch_wrapper_str_intern (/usr/local/lib/python3.10/site-packages/torch/_tensor_str.py:684)
+  _str_intern (/usr/local/lib/python3.10/site-packages/torch/_tensor_str.py:400)
+  _str (/usr/local/lib/python3.10/site-packages/torch/_tensor_str.py:708)
+  __repr__ (/usr/local/lib/python3.10/site-packages/torch/_tensor.py:464)
+  test_scan_linear_layers (/workspaces/torch/playground/test_scan.py:162)
+  pytest_pyfunc_call (/usr/local/lib/python3.10/site-packages/_pytest/python.py:159)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  runtest (/usr/local/lib/python3.10/site-packages/_pytest/python.py:1627)
+  pytest_runtest_call (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:174)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  <lambda> (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:242)
+  from_call (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:341)
+  call_and_report (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:241)
+  runtestprotocol (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:132)
+  pytest_runtest_protocol (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:113)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  pytest_runtestloop (/usr/local/lib/python3.10/site-packages/_pytest/main.py:362)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  _main (/usr/local/lib/python3.10/site-packages/_pytest/main.py:337)
+  wrap_session (/usr/local/lib/python3.10/site-packages/_pytest/main.py:283)
+  pytest_cmdline_main (/usr/local/lib/python3.10/site-packages/_pytest/main.py:330)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  main (/usr/local/lib/python3.10/site-packages/_pytest/config/__init__.py:175)
+  console_main (/usr/local/lib/python3.10/site-packages/_pytest/config/__init__.py:201)
+  <module> (/usr/local/bin/pytest:8)
+
+Root Hashes: (a343eb431535c0063434f021678137d)
+
+## BEGIN_GRAPH
+IR {
+  %0 = f32[] prim::Constant(), location=<listcomp>@scan_prototype.py:244, xla_shape=f32[]
+  %1 = f32[1,64]{1,0} aten::expand(%0), location=<listcomp>@scan_prototype.py:244, xla_shape=f32[1,64]{1,0}
+  %2 = f32[] prim::Constant(), location=<listcomp>@scan_prototype.py:248, xla_shape=f32[]
+  %3 = f32[1,64]{1,0} aten::expand(%2), location=<listcomp>@scan_prototype.py:248, xla_shape=f32[1,64]{1,0}
+  %4 = f32[64]{0} xla::device_data(), location=convert@module.py:1326, xla_shape=f32[64]{0}
+  %5 = f32[1,64]{1,0} aten::stack(%4), location=<lambda>@apply_layers.py:32, xla_shape=f32[1,64]{1,0}
+  %6 = f32[64,64]{1,0} xla::device_data(), location=convert@module.py:1326, xla_shape=f32[64,64]{1,0}
+  %7 = f32[1,64,64]{2,1,0} aten::stack(%6), location=<lambda>@apply_layers.py:32, xla_shape=f32[1,64,64]{2,1,0}
+  %8 = f32[64]{0} xla::device_data(), location=test_scan_linear_layers@test_scan.py:160, xla_shape=f32[64]{0}
+  %9 = s64[] prim::Constant(), location=scan_dense@scan_prototype.py:242, xla_shape=s64[]
+  %10 = (s64[], f32[64]{0}, f32[1,64,64]{2,1,0}, f32[1,64]{1,0}, f32[1,64]{1,0}, /*index=5*/f32[1,64]{1,0}) xla::scan(%9, %8, %7, %5, %3, %1), num_outputs=6, location=scan_dense@scan_prototype.py:347, xla_shape=(s64[], f32[64]{0}, f32[1,64,64]{2,1,0}, f32[1,64]{1,0}, f32[1,64]{1,0}, /*index=5*/f32[1,64]{1,0}), ROOT=0
+}
+
+Graph Hash: 70193d3e3ffbbef81ce24e99b65d2d21
+
+## END_GRAPH
+
+[ScheduleSyncTensorsGraph]
+TensorsGraphInfo:
+  _str_intern (/usr/local/lib/python3.10/site-packages/torch/_tensor_str.py:440)
+  _str (/usr/local/lib/python3.10/site-packages/torch/_tensor_str.py:708)
+  __repr__ (/usr/local/lib/python3.10/site-packages/torch/_tensor.py:464)
+  test_scan_linear_layers (/workspaces/torch/playground/test_scan.py:171)
+  pytest_pyfunc_call (/usr/local/lib/python3.10/site-packages/_pytest/python.py:159)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  runtest (/usr/local/lib/python3.10/site-packages/_pytest/python.py:1627)
+  pytest_runtest_call (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:174)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  <lambda> (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:242)
+  from_call (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:341)
+  call_and_report (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:241)
+  runtestprotocol (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:132)
+  pytest_runtest_protocol (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:113)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  pytest_runtestloop (/usr/local/lib/python3.10/site-packages/_pytest/main.py:362)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  _main (/usr/local/lib/python3.10/site-packages/_pytest/main.py:337)
+  wrap_session (/usr/local/lib/python3.10/site-packages/_pytest/main.py:283)
+  pytest_cmdline_main (/usr/local/lib/python3.10/site-packages/_pytest/main.py:330)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  main (/usr/local/lib/python3.10/site-packages/_pytest/config/__init__.py:175)
+  console_main (/usr/local/lib/python3.10/site-packages/_pytest/config/__init__.py:201)
+  <module> (/usr/local/bin/pytest:8)
+
+Root Hashes: (d3ee18244a71e84779fd2ef8719c8713)
+
+## BEGIN_GRAPH
+IR {
+  %0 = f32[] prim::Constant(), location=forward@linear.py:125, xla_shape=f32[]
+  %1 = f32[64]{0} xla::device_data(), location=convert@module.py:1326, xla_shape=f32[64]{0}
+  %2 = f32[64,64]{1,0} xla::device_data(), location=convert@module.py:1326, xla_shape=f32[64,64]{1,0}
+  %3 = f32[64,64]{0,1} aten::permute(%2), location=forward@linear.py:125, xla_shape=f32[64,64]{0,1}
+  %4 = f32[64]{0} xla::device_data(), location=test_scan_linear_layers@test_scan.py:160, xla_shape=f32[64]{0}
+  %5 = f32[1,64]{1,0} aten::view(%4), location=forward@linear.py:125, xla_shape=f32[1,64]{1,0}
+  %6 = f32[1,64]{1,0} aten::mm(%5, %3), location=forward@linear.py:125, xla_shape=f32[1,64]{1,0}
+  %7 = f32[64]{0} aten::view(%6), location=forward@linear.py:125, xla_shape=f32[64]{0}
+  %8 = f32[64]{0} aten::add(%7, %1, %0), scope=aten::add.7, location=forward@linear.py:125, xla_shape=f32[64]{0}, ROOT=0
+}
+
+Graph Hash: 1587aa625ef5ab215adc4e82cf4914d0
+
+## END_GRAPH
+
+[ScheduleSyncTensorsGraph]
+TensorsGraphInfo:
+  test_scan_linear_layers (/workspaces/torch/playground/test_scan.py:191)
+  pytest_pyfunc_call (/usr/local/lib/python3.10/site-packages/_pytest/python.py:159)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  runtest (/usr/local/lib/python3.10/site-packages/_pytest/python.py:1627)
+  pytest_runtest_call (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:174)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  <lambda> (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:242)
+  from_call (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:341)
+  call_and_report (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:241)
+  runtestprotocol (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:132)
+  pytest_runtest_protocol (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:113)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  pytest_runtestloop (/usr/local/lib/python3.10/site-packages/_pytest/main.py:362)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  _main (/usr/local/lib/python3.10/site-packages/_pytest/main.py:337)
+  wrap_session (/usr/local/lib/python3.10/site-packages/_pytest/main.py:283)
+  pytest_cmdline_main (/usr/local/lib/python3.10/site-packages/_pytest/main.py:330)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  main (/usr/local/lib/python3.10/site-packages/_pytest/config/__init__.py:175)
+  console_main (/usr/local/lib/python3.10/site-packages/_pytest/config/__init__.py:201)
+  <module> (/usr/local/bin/pytest:8)
+
+Root Hashes: (b4faaab14222ebb712b969520b696ad4)
+
+## BEGIN_GRAPH
+IR {
+  %0 = f32[] prim::Constant(), location=<listcomp>@scan_prototype.py:244, xla_shape=f32[]
+  %1 = f32[1,64]{1,0} aten::expand(%0), location=<listcomp>@scan_prototype.py:244, xla_shape=f32[1,64]{1,0}
+  %2 = f32[] prim::Constant(), location=<listcomp>@scan_prototype.py:244, xla_shape=f32[]
+  %3 = f32[1,64,64]{2,1,0} aten::expand(%2), location=<listcomp>@scan_prototype.py:244, xla_shape=f32[1,64,64]{2,1,0}
+  %4 = f32[] prim::Constant(), location=<listcomp>@scan_prototype.py:248, xla_shape=f32[]
+  %5 = f32[1,64]{1,0} aten::expand(%4), location=<listcomp>@scan_prototype.py:248, xla_shape=f32[1,64]{1,0}
+  %6 = f32[64]{0} xla::device_data(), location=convert@module.py:1326, xla_shape=f32[64]{0}
+  %7 = f32[1,64]{1,0} aten::stack(%6), location=<lambda>@apply_layers.py:32, xla_shape=f32[1,64]{1,0}
+  %8 = f32[1,64]{1,0} aten::flip(%7), location=<lambda>@scan_prototype.py:453, xla_shape=f32[1,64]{1,0}
+  %9 = f32[64,64]{1,0} xla::device_data(), location=convert@module.py:1326, xla_shape=f32[64,64]{1,0}
+  %10 = f32[1,64,64]{2,1,0} aten::stack(%9), location=<lambda>@apply_layers.py:32, xla_shape=f32[1,64,64]{2,1,0}
+  %11 = f32[1,64,64]{2,1,0} aten::flip(%10), location=<lambda>@scan_prototype.py:453, xla_shape=f32[1,64,64]{2,1,0}
+  %12 = f32[] prim::Constant(), location=<listcomp>@scan_prototype.py:244, xla_shape=f32[]
+  %13 = f32[1,64]{1,0} aten::expand(%12), location=<listcomp>@scan_prototype.py:244, xla_shape=f32[1,64]{1,0}
+  %14 = f32[] prim::Constant(), location=<listcomp>@scan_prototype.py:248, xla_shape=f32[]
+  %15 = f32[1,64]{1,0} aten::expand(%14), location=<listcomp>@scan_prototype.py:248, xla_shape=f32[1,64]{1,0}
+  %16 = f32[64]{0} xla::device_data(), location=test_scan_linear_layers@test_scan.py:160, xla_shape=f32[64]{0}
+  %17 = s64[] prim::Constant(), location=scan_dense@scan_prototype.py:242, xla_shape=s64[]
+  %18 = (s64[], f32[64]{0}, f32[1,64,64]{2,1,0}, f32[1,64]{1,0}, f32[1,64]{1,0}, /*index=5*/f32[1,64]{1,0}) xla::scan(%17, %16, %10, %7, %15, %13), num_outputs=6, location=scan_dense@scan_prototype.py:347, xla_shape=(s64[], f32[64]{0}, f32[1,64,64]{2,1,0}, f32[1,64]{1,0}, f32[1,64]{1,0}, /*index=5*/f32[1,64]{1,0})
+  %19 = f32[1,64]{1,0} aten::flip(%18.4), location=backward@scan_prototype.py:452, xla_shape=f32[1,64]{1,0}
+  %20 = f32[] prim::Constant(), xla_shape=f32[]
+  %21 = f32[1,64]{1,0} aten::expand(%20), xla_shape=f32[1,64]{1,0}
+  %22 = f32[1,64]{1,0} aten::flip(%21), location=backward@scan_prototype.py:454, xla_shape=f32[1,64]{1,0}
+  %23 = f32[] prim::Constant(), location=_make_grads@__init__.py:220, xla_shape=f32[]
+  %24 = f32[] aten::expand(%23), location=_make_grads@__init__.py:220, xla_shape=f32[]
+  %25 = f32[64]{0} aten::expand(%24), xla_shape=f32[64]{0}
+  %26 = s64[] prim::Constant(), location=scan_dense@scan_prototype.py:242, xla_shape=s64[]
+  %27 = (s64[], f32[64]{0}, f32[1,64]{1,0}, f32[1,64]{1,0}, f32[1,64,64]{2,1,0}, /*index=5*/f32[1,64]{1,0}, f32[1,64]{1,0}, f32[1,64,64]{2,1,0}, f32[1,64]{1,0}) xla::scan(%26, %25, %22, %19, %11, %8, %5, %3, %1), num_outputs=9, location=scan_dense@scan_prototype.py:347, xla_shape=(s64[], f32[64]{0}, f32[1,64]{1,0}, f32[1,64]{1,0}, f32[1,64,64]{2,1,0}, /*index=5*/f32[1,64]{1,0}, f32[1,64]{1,0}, f32[1,64,64]{2,1,0}, f32[1,64]{1,0})
+  %28 = f32[1,64,64]{2,1,0} aten::flip(%27.7), location=<lambda>@scan_prototype.py:458, xla_shape=f32[1,64,64]{2,1,0}
+  %29 = f32[1,64,64]{2,1,0} xla::generic_slice(%28), xla_shape=f32[1,64,64]{2,1,0}
+  %30 = f32[64,64]{1,0} aten::view(%29), xla_shape=f32[64,64]{1,0}, ROOT=0
+}
+
+Graph Hash: 912b3e7033a56b93fd469b8cc411d333
+
+## END_GRAPH
+
+[ScheduleSyncTensorsGraph]
+TensorsGraphInfo:
+  test_scan_linear_layers (/workspaces/torch/playground/test_scan.py:191)
+  pytest_pyfunc_call (/usr/local/lib/python3.10/site-packages/_pytest/python.py:159)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  runtest (/usr/local/lib/python3.10/site-packages/_pytest/python.py:1627)
+  pytest_runtest_call (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:174)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  <lambda> (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:242)
+  from_call (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:341)
+  call_and_report (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:241)
+  runtestprotocol (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:132)
+  pytest_runtest_protocol (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:113)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  pytest_runtestloop (/usr/local/lib/python3.10/site-packages/_pytest/main.py:362)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  _main (/usr/local/lib/python3.10/site-packages/_pytest/main.py:337)
+  wrap_session (/usr/local/lib/python3.10/site-packages/_pytest/main.py:283)
+  pytest_cmdline_main (/usr/local/lib/python3.10/site-packages/_pytest/main.py:330)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  main (/usr/local/lib/python3.10/site-packages/_pytest/config/__init__.py:175)
+  console_main (/usr/local/lib/python3.10/site-packages/_pytest/config/__init__.py:201)
+  <module> (/usr/local/bin/pytest:8)
+
+Root Hashes: (e1d888d622269db221e7caede861bf09)
+
+## BEGIN_GRAPH
+IR {
+  %0 = f32[] prim::Constant(), location=_make_grads@__init__.py:220, xla_shape=f32[]
+  %1 = f32[] aten::expand(%0), location=_make_grads@__init__.py:220, xla_shape=f32[]
+  %2 = f32[64]{0} aten::expand(%1), xla_shape=f32[64]{0}
+  %3 = f32[1,64]{1,0} aten::view(%2), xla_shape=f32[1,64]{1,0}
+  %4 = f32[64]{0} xla::device_data(), location=test_scan_linear_layers@test_scan.py:160, xla_shape=f32[64]{0}
+  %5 = f32[1,64]{1,0} aten::view(%4), location=forward@linear.py:125, xla_shape=f32[1,64]{1,0}
+  %6 = f32[64,1]{0,1} aten::permute(%5), xla_shape=f32[64,1]{0,1}
+  %7 = f32[64,64]{1,0} aten::mm(%6, %3), xla_shape=f32[64,64]{1,0}
+  %8 = f32[64,64]{0,1} aten::permute(%7), xla_shape=f32[64,64]{0,1}, ROOT=0
+}
+
+Graph Hash: b13ae5670b89b4b85dff1297693e074e
+
+## END_GRAPH
+
+[ScheduleSyncTensorsGraph]
+TensorsGraphInfo:
+  test_scan_linear_layers (/workspaces/torch/playground/test_scan.py:196)
+  pytest_pyfunc_call (/usr/local/lib/python3.10/site-packages/_pytest/python.py:159)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  runtest (/usr/local/lib/python3.10/site-packages/_pytest/python.py:1627)
+  pytest_runtest_call (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:174)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  <lambda> (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:242)
+  from_call (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:341)
+  call_and_report (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:241)
+  runtestprotocol (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:132)
+  pytest_runtest_protocol (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:113)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  pytest_runtestloop (/usr/local/lib/python3.10/site-packages/_pytest/main.py:362)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  _main (/usr/local/lib/python3.10/site-packages/_pytest/main.py:337)
+  wrap_session (/usr/local/lib/python3.10/site-packages/_pytest/main.py:283)
+  pytest_cmdline_main (/usr/local/lib/python3.10/site-packages/_pytest/main.py:330)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  main (/usr/local/lib/python3.10/site-packages/_pytest/config/__init__.py:175)
+  console_main (/usr/local/lib/python3.10/site-packages/_pytest/config/__init__.py:201)
+  <module> (/usr/local/bin/pytest:8)
+
+Root Hashes: (348af2ce6c2b98b9dd42f11fed7d6925)
+
+## BEGIN_GRAPH
+IR {
+  %0 = f32[] prim::Constant(), location=<listcomp>@scan_prototype.py:244, xla_shape=f32[]
+  %1 = f32[1,64]{1,0} aten::expand(%0), location=<listcomp>@scan_prototype.py:244, xla_shape=f32[1,64]{1,0}
+  %2 = f32[] prim::Constant(), location=<listcomp>@scan_prototype.py:244, xla_shape=f32[]
+  %3 = f32[1,64,64]{2,1,0} aten::expand(%2), location=<listcomp>@scan_prototype.py:244, xla_shape=f32[1,64,64]{2,1,0}
+  %4 = f32[] prim::Constant(), location=<listcomp>@scan_prototype.py:248, xla_shape=f32[]
+  %5 = f32[1,64]{1,0} aten::expand(%4), location=<listcomp>@scan_prototype.py:248, xla_shape=f32[1,64]{1,0}
+  %6 = f32[64]{0} xla::device_data(), location=convert@module.py:1326, xla_shape=f32[64]{0}
+  %7 = f32[1,64]{1,0} aten::stack(%6), location=<lambda>@apply_layers.py:32, xla_shape=f32[1,64]{1,0}
+  %8 = f32[1,64]{1,0} aten::flip(%7), location=<lambda>@scan_prototype.py:453, xla_shape=f32[1,64]{1,0}
+  %9 = f32[64,64]{1,0} xla::device_data(), location=convert@module.py:1326, xla_shape=f32[64,64]{1,0}
+  %10 = f32[1,64,64]{2,1,0} aten::stack(%9), location=<lambda>@apply_layers.py:32, xla_shape=f32[1,64,64]{2,1,0}
+  %11 = f32[1,64,64]{2,1,0} aten::flip(%10), location=<lambda>@scan_prototype.py:453, xla_shape=f32[1,64,64]{2,1,0}
+  %12 = f32[] prim::Constant(), location=<listcomp>@scan_prototype.py:244, xla_shape=f32[]
+  %13 = f32[1,64]{1,0} aten::expand(%12), location=<listcomp>@scan_prototype.py:244, xla_shape=f32[1,64]{1,0}
+  %14 = f32[] prim::Constant(), location=<listcomp>@scan_prototype.py:248, xla_shape=f32[]
+  %15 = f32[1,64]{1,0} aten::expand(%14), location=<listcomp>@scan_prototype.py:248, xla_shape=f32[1,64]{1,0}
+  %16 = f32[64]{0} xla::device_data(), location=test_scan_linear_layers@test_scan.py:160, xla_shape=f32[64]{0}
+  %17 = s64[] prim::Constant(), location=scan_dense@scan_prototype.py:242, xla_shape=s64[]
+  %18 = (s64[], f32[64]{0}, f32[1,64,64]{2,1,0}, f32[1,64]{1,0}, f32[1,64]{1,0}, /*index=5*/f32[1,64]{1,0}) xla::scan(%17, %16, %10, %7, %15, %13), num_outputs=6, location=scan_dense@scan_prototype.py:347, xla_shape=(s64[], f32[64]{0}, f32[1,64,64]{2,1,0}, f32[1,64]{1,0}, f32[1,64]{1,0}, /*index=5*/f32[1,64]{1,0})
+  %19 = f32[1,64]{1,0} aten::flip(%18.4), location=backward@scan_prototype.py:452, xla_shape=f32[1,64]{1,0}
+  %20 = f32[] prim::Constant(), xla_shape=f32[]
+  %21 = f32[1,64]{1,0} aten::expand(%20), xla_shape=f32[1,64]{1,0}
+  %22 = f32[1,64]{1,0} aten::flip(%21), location=backward@scan_prototype.py:454, xla_shape=f32[1,64]{1,0}
+  %23 = f32[] prim::Constant(), location=_make_grads@__init__.py:220, xla_shape=f32[]
+  %24 = f32[] aten::expand(%23), location=_make_grads@__init__.py:220, xla_shape=f32[]
+  %25 = f32[64]{0} aten::expand(%24), xla_shape=f32[64]{0}
+  %26 = s64[] prim::Constant(), location=scan_dense@scan_prototype.py:242, xla_shape=s64[]
+  %27 = (s64[], f32[64]{0}, f32[1,64]{1,0}, f32[1,64]{1,0}, f32[1,64,64]{2,1,0}, /*index=5*/f32[1,64]{1,0}, f32[1,64]{1,0}, f32[1,64,64]{2,1,0}, f32[1,64]{1,0}) xla::scan(%26, %25, %22, %19, %11, %8, %5, %3, %1), num_outputs=9, location=scan_dense@scan_prototype.py:347, xla_shape=(s64[], f32[64]{0}, f32[1,64]{1,0}, f32[1,64]{1,0}, f32[1,64,64]{2,1,0}, /*index=5*/f32[1,64]{1,0}, f32[1,64]{1,0}, f32[1,64,64]{2,1,0}, f32[1,64]{1,0})
+  %28 = f32[1,64]{1,0} aten::flip(%27.8), location=<lambda>@scan_prototype.py:458, xla_shape=f32[1,64]{1,0}
+  %29 = f32[1,64]{1,0} xla::generic_slice(%28), xla_shape=f32[1,64]{1,0}
+  %30 = f32[64]{0} aten::view(%29), xla_shape=f32[64]{0}, ROOT=0
+}
+
+Graph Hash: 6c0a7da705c3e658ef4252c90637ffa6
+
+## END_GRAPH
+
+[ScheduleSyncTensorsGraph]
+TensorsGraphInfo:
+  test_scan_linear_layers (/workspaces/torch/playground/test_scan.py:196)
+  pytest_pyfunc_call (/usr/local/lib/python3.10/site-packages/_pytest/python.py:159)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  runtest (/usr/local/lib/python3.10/site-packages/_pytest/python.py:1627)
+  pytest_runtest_call (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:174)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  <lambda> (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:242)
+  from_call (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:341)
+  call_and_report (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:241)
+  runtestprotocol (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:132)
+  pytest_runtest_protocol (/usr/local/lib/python3.10/site-packages/_pytest/runner.py:113)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  pytest_runtestloop (/usr/local/lib/python3.10/site-packages/_pytest/main.py:362)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  _main (/usr/local/lib/python3.10/site-packages/_pytest/main.py:337)
+  wrap_session (/usr/local/lib/python3.10/site-packages/_pytest/main.py:283)
+  pytest_cmdline_main (/usr/local/lib/python3.10/site-packages/_pytest/main.py:330)
+  _multicall (/usr/local/lib/python3.10/site-packages/pluggy/_callers.py:103)
+  _hookexec (/usr/local/lib/python3.10/site-packages/pluggy/_manager.py:120)
+  __call__ (/usr/local/lib/python3.10/site-packages/pluggy/_hooks.py:513)
+  main (/usr/local/lib/python3.10/site-packages/_pytest/config/__init__.py:175)
+  console_main (/usr/local/lib/python3.10/site-packages/_pytest/config/__init__.py:201)
+  <module> (/usr/local/bin/pytest:8)
+
+Root Hashes: (deb8c5aadfb8486989096097a3bb7dfb)
+
+## BEGIN_GRAPH
+IR {
+  %0 = f32[] prim::Constant(), location=_make_grads@__init__.py:220, xla_shape=f32[]
+  %1 = f32[] aten::expand(%0), location=_make_grads@__init__.py:220, xla_shape=f32[]
+  %2 = f32[64]{0} aten::expand(%1), xla_shape=f32[64]{0}, ROOT=0
+}
+
+Graph Hash: 18fce5b0ff99c5d1bbf2e4f838beb651
+
+## END_GRAPH
+

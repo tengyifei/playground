@@ -158,14 +158,20 @@ def test_scan_linear_layers():
   import torch.nn as nn
   layers = [nn.Linear(64, 64).to(device) for _ in range(10)]
   input_data = torch.randn(64).to(device)
-  output = apply_layers(layers, input_data.clone())
+
+  from copy import deepcopy
+  scan_layers = deepcopy(layers)
+  loop_layers = deepcopy(layers)
+
+  torch_xla.sync()
+
+  output = apply_layers(scan_layers, input_data.clone())
   print("Output:", output)
   output.sum().backward()
 
   # Test that the result is the same as for loop.
   loop_output = input_data.clone()
   from copy import deepcopy
-  loop_layers = deepcopy(layers)
   for layer in loop_layers:
     loop_output = layer(loop_output)
   print("Loop output:", loop_output)
@@ -178,20 +184,26 @@ def test_scan_linear_layers():
 
   loop_output.sum().backward()
 
+  # Save HLO of scan backwards.
+  for i, layer_scan in enumerate(scan_layers):
+    weight_grad = layer_scan.weight.grad
+    bias_grad = layer_scan.bias.grad
+    hlo = torch_xla._XLAC._get_xla_tensors_hlo([weight_grad, bias_grad])
+    from pathlib import Path
+    Path(f"ir_dumps/scan_backwards_hlo_{i}.txt").write_text(hlo)
+
   # Test that the gradients are the same too.
-  for layer_scan, layer_loop in zip(layers, loop_layers):
+  for layer_scan, layer_loop in zip(scan_layers, loop_layers):
     assert np.allclose(
         layer_scan.weight.grad.detach().cpu().numpy(),  # type: ignore
         layer_loop.weight.grad.detach().cpu().numpy(),  # type: ignore
         atol=0.0001,
         rtol=0.01), f"{layer_scan.weight.grad} != {layer_loop.weight.grad}"
-
-    # TODO: enable this check
-    # assert np.allclose(
-    #     layer_scan.bias.grad.detach().cpu().numpy(),  # type: ignore
-    #     layer_loop.bias.grad.detach().cpu().numpy(),  # type: ignore
-    #     atol=0.0001,
-    #     rtol=0.01), f"{layer_scan.bias.grad} != {layer_loop.bias.grad}"
+    assert np.allclose(
+        layer_scan.bias.grad.detach().cpu().numpy(),  # type: ignore
+        layer_loop.bias.grad.detach().cpu().numpy(),  # type: ignore
+        atol=0.0001,
+        rtol=0.01), f"{layer_scan.bias.grad} != {layer_loop.bias.grad}"
 
 
 def test_scan_decoder_model():
