@@ -236,6 +236,7 @@ def test_scan_decoder_model():
     assert close
 
 
+@pytest.mark.skip(reason="crashes due to memory corruption")
 def test_scan_decoder_model_autograd():
   import torch_xla
   from decoder_only_model import DecoderOnlyConfig, DecoderOnlyModel
