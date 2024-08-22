@@ -5,39 +5,16 @@ import torch
 import torch_xla.core.xla_builder as xb
 from torch._ops import HigherOrderOperator
 from torch._C import DispatchKey
+import torch.utils._pytree as pytree
 from torch.utils._pytree import tree_map, tree_flatten, tree_unflatten, tree_iter, PyTree
+import torch.autograd
+from torch.autograd import Function
 
 import torch_xla
 
 Carry = TypeVar('Carry')
 X = TypeVar('X')
 Y = TypeVar('Y')
-
-
-class ScanOp(HigherOrderOperator):
-
-  def __init__(self):
-    super().__init__("scan")
-
-  def __call__(
-      self,
-      fn: Callable[[Carry, X], tuple[Carry, Y]],
-      init: Carry,
-      xs: X,
-      /,
-  ) -> tuple[Carry, Carry, Y]:
-    return super().__call__(fn, init, xs)  # type: ignore
-
-
-scan_op = ScanOp()
-
-
-def _scan_carry_history(
-    fn: Callable[[Carry, X], tuple[Carry, Y]],
-    init: Carry,
-    xs: X,
-) -> tuple[Carry, Carry, Y]:
-  return scan_op(fn, init, xs)
 
 
 def scan(
@@ -89,7 +66,7 @@ def scan(
 
   [1]: https://jax.readthedocs.io/en/latest/_autosummary/jax.lax.scan.html
   """
-  carry, carry_history, ys = scan_op(fn, init, xs)
+  carry, carry_history, ys = Scan.apply(fn, init, xs)  # type: ignore
   return carry, ys
 
 
@@ -138,11 +115,7 @@ class Builder:
     return len(self._params)
 
 
-# See https://github.com/pytorch/pytorch/blob/main/aten/src/ATen/native/README.md for
-# the meaning of CompositeExplicitAutogradNonFunctional.
-@scan_op.py_impl(DispatchKey.CompositeExplicitAutogradNonFunctional)
-@scan_op.py_impl(DispatchKey.XLA)
-def scan_dense(fn, init, xs):
+def _scan_impl(fn, init, xs):
   """Forward implementation of scan."""
 
   flat_init, carry_spec = tree_flatten(init)
@@ -307,23 +280,15 @@ def scan_dense(fn, init, xs):
     all_inputs = carry + x
     all_inputs_reordered = []
     mapping: Dict[int, torch.Tensor] = fn_ctx.parameter_id_tensor_mapping()
-    print(
-        f"Mapping of {len(mapping)}: ",
-        dict(
-            sorted(
-                {k: v.shape for k, v in mapping.items()}.items(),
-                key=lambda x: x[0])))
     for i in range(len(mapping)):
       if i in param_id_to_fake_tensors_id:
         op = all_inputs[param_id_to_fake_tensors_id[i]]
         all_inputs_reordered.append(op)
-        print(f"Param {i} is a function arg: {op.shape().sizes}")
       else:
         # TODO: super subtle. what is the right abstraction for this?
         op = additional_inputs[param_id_to_additional_tensors_param_id[i] -
                                len(loop_tensors)]
         all_inputs_reordered.append(op)
-        print(f"Param {i} is extra: {op.shape().sizes}")
     return xb.Op.call(fn_computation, all_inputs_reordered)
 
   @skip_additional_inputs
@@ -363,13 +328,6 @@ def scan_dense(fn, init, xs):
   # Unflatten tensors back to PyTrees
   return tree_unflatten(carry, carry_spec), tree_unflatten(
       fn_carry_history, carry_spec), tree_unflatten(ys, fn_output_y_spec)
-
-
-import torch.autograd
-from torch.utils.checkpoint import detach_variable
-import torch
-from torch.autograd import Function
-import torch.utils._pytree as pytree
 
 
 # Taken from https://github.com/pytorch/pytorch/issues/96337
@@ -422,7 +380,7 @@ class Scan(torch.autograd.Function):
     # Forward pass, save inputs for backward
     ctx._fn = fn
     with torch._C._AutoDispatchBelowAutograd():
-      carry, carry_history, ys = _scan_carry_history(fn, init, xs)
+      carry, carry_history, ys = _scan_impl(fn, init, xs)
     flat_carry_history, carry_spec = tree_flatten(carry_history)
     flat_xs, xs_spec = tree_flatten(xs)
     ctx.save_for_backward(*flat_carry_history, *flat_xs)
@@ -463,26 +421,9 @@ class Scan(torch.autograd.Function):
     xs = tree_map(lambda v: v.flip(0).requires_grad_(True), xs)
     grad_ys = grad_ys.flip(0).requires_grad_(True)
 
-    grad_init, _, grad_xs = scan_dense(step_fn, grad_init,
+    grad_init, _, grad_xs = _scan_impl(step_fn, grad_init,
                                        (grad_ys, carry_history, xs))
     return None, grad_init, tree_map(lambda v: v.flip(0), grad_xs)
-
-
-scan_op.py_impl(DispatchKey.AutogradXLA)(Scan.apply)
-
-
-@scan_op.py_functionalize_impl
-def scan_func(ctx, fn, init, xs):
-  unwrapped_init = ctx.unwrap_tensors(init)
-  unwrapped_xs = ctx.unwrap_tensors(xs)
-  with ctx.redispatch_to_next() as m:
-    functional_fn = ctx.functionalize(fn)
-    ret = scan_op(
-        functional_fn,
-        unwrapped_init,
-        unwrapped_xs,
-    )
-    return ctx.wrap_tensors(ret)
 
 
 if __name__ == "__main__":
