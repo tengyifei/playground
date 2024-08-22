@@ -307,15 +307,23 @@ def scan_dense(fn, init, xs):
     all_inputs = carry + x
     all_inputs_reordered = []
     mapping: Dict[int, torch.Tensor] = fn_ctx.parameter_id_tensor_mapping()
+    print(
+        f"Mapping of {len(mapping)}: ",
+        dict(
+            sorted(
+                {k: v.shape for k, v in mapping.items()}.items(),
+                key=lambda x: x[0])))
     for i in range(len(mapping)):
       if i in param_id_to_fake_tensors_id:
         op = all_inputs[param_id_to_fake_tensors_id[i]]
         all_inputs_reordered.append(op)
+        print(f"Param {i} is a function arg: {op.shape().sizes}")
       else:
         # TODO: super subtle. what is the right abstraction for this?
         op = additional_inputs[param_id_to_additional_tensors_param_id[i] -
                                len(loop_tensors)]
         all_inputs_reordered.append(op)
+        print(f"Param {i} is extra: {op.shape().sizes}")
     return xb.Op.call(fn_computation, all_inputs_reordered)
 
   @skip_additional_inputs
@@ -478,5 +486,5 @@ def scan_func(ctx, fn, init, xs):
 
 
 if __name__ == "__main__":
-  import pytest
-  pytest.main(["-v", "playground/"])
+  import test_scan
+  test_scan.test_scan_decoder_model()

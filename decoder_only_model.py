@@ -45,8 +45,8 @@ class RMSNorm(nn.Module):
 
   def __init__(self, hidden_size, eps=1e-6):
     """
-        RMSNorm is equivalent to LlamaRMSNorm
-        """
+    RMSNorm is equivalent to LlamaRMSNorm
+    """
     super().__init__()
     self.weight = nn.Parameter(torch.ones(hidden_size))
     self.variance_epsilon = eps
@@ -60,7 +60,7 @@ class RMSNorm(nn.Module):
     return self.weight * hidden_states.to(input_dtype)
 
 
-# 1. no kv_chche
+# 1. no kv_cache
 # 2. no rotary embedding
 # 3. no attention_mask
 class GroupQueryAttention(nn.Module):
@@ -175,7 +175,7 @@ class DecoderLayer(nn.Module):
   def __init__(self, config: DecoderOnlyConfig):
     super().__init__()
     self.hidden_size = config.hidden_size
-    self.self_attn = (GroupQueryAttention(config=config))
+    self.self_attn = GroupQueryAttention(config=config)
     self.mlp = MLP(config)
     self.input_layernorm = RMSNorm(config.hidden_size)
     self.post_attention_layernorm = RMSNorm(config.hidden_size)

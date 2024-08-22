@@ -184,14 +184,6 @@ def test_scan_linear_layers():
 
   loop_output.sum().backward()
 
-  # Save HLO of scan backwards.
-  for i, layer_scan in enumerate(scan_layers):
-    weight_grad = layer_scan.weight.grad
-    bias_grad = layer_scan.bias.grad
-    hlo = torch_xla._XLAC._get_xla_tensors_hlo([weight_grad, bias_grad])
-    from pathlib import Path
-    Path(f"ir_dumps/scan_backwards_hlo_{i}.txt").write_text(hlo)
-
   # Test that the gradients are the same too.
   for layer_scan, layer_loop in zip(scan_layers, loop_layers):
     assert np.allclose(
@@ -212,6 +204,44 @@ def test_scan_decoder_model():
 
   device = torch_xla.device()
 
+  with torch.no_grad():
+    # Define the configuration
+    config = DecoderOnlyConfig()
+
+    # Instantiate the model
+    model = DecoderOnlyModel(config).to(device)
+
+    # Set the batch size and sequence length
+    batch_size = 2  # 2 sequences in parallel
+    sequence_length = 10  # each sequence is 10 tokens long
+
+    # Generate random input_ids within the range of the vocabulary size
+    input_ids = torch.randint(0, config.vocab_size,
+                              (batch_size, sequence_length)).to(device)
+
+    # Feed the input_ids into the model
+    loop_output = model(input_ids.clone())
+    print(f"Loop output shape: {loop_output.shape}")
+
+    # Run again, this time using `scan`
+    scan_output = model.forward_scan(input_ids.clone())
+    print(f"Scan output shape: {scan_output.shape}")
+
+    torch_xla.sync(wait=True)
+    close = np.allclose(
+        loop_output.detach().cpu().numpy(),
+        scan_output.detach().cpu().numpy(),
+        atol=0.0001,
+        rtol=0.01)
+    assert close
+
+
+def test_scan_decoder_model_autograd():
+  import torch_xla
+  from decoder_only_model import DecoderOnlyConfig, DecoderOnlyModel
+
+  device = torch_xla.device()
+
   # Define the configuration
   config = DecoderOnlyConfig()
 
@@ -226,19 +256,23 @@ def test_scan_decoder_model():
   input_ids = torch.randint(0, config.vocab_size,
                             (batch_size, sequence_length)).to(device)
 
-  with torch.no_grad():
-    # Feed the input_ids into the model
-    loop_output = model(input_ids.clone())
+  from copy import deepcopy
+  loop_model = deepcopy(model)
+  scan_model = deepcopy(model)
 
-    # Print the output shape
-    print(f"Loop output shape: {loop_output.shape}")
+  # Feed the input_ids into the model
+  loop_output = loop_model(input_ids.clone())
+  print(f"Loop output shape: {loop_output.shape}")
+  loop_output.sum().backward()
+  torch_xla.sync(wait=True)
 
-  with torch.no_grad():
-    # Run again, this time using `scan`
-    # TODO: switch to XLA scan
-    scan_output = model.forward_loopy_scan(input_ids.clone())
+  # Run again, this time using `scan`
+  scan_output = scan_model.forward_scan(input_ids.clone())
 
-    print(f"Scan output shape: {scan_output.shape}")
+  print(f"Scan output shape: {scan_output.shape}")
+  scan_output.sum().backward()
+  torch_xla.sync(wait=True)
+  print("Good")
 
   close = np.allclose(
       loop_output.detach().cpu().numpy(),
@@ -246,3 +280,18 @@ def test_scan_decoder_model():
       atol=0.0001,
       rtol=0.01)
   assert close
+
+  # Check gradients
+  for layer_scan, layer_loop in zip(scan_model.layers, loop_model.layers):
+    for (name, param_scan), (name2,
+                             param_loop) in zip(layer_scan.named_parameters(),
+                                                layer_loop.named_parameters()):
+      assert name == name2
+      if param_scan.grad is not None or param_loop.grad is not None:
+        assert np.allclose(
+            param_scan.grad.detach().cpu().numpy(),  # type: ignore
+            param_loop.grad.detach().cpu().numpy(),  # type: ignore
+            atol=0.0001,
+            rtol=0.01
+        ), f"{name} gradient mismatch: {param_scan.grad.detach().cpu().numpy()} != {param_loop.grad.detach().cpu().numpy()}"  # type: ignore
+        print(f"Pass: {name} {param_scan.shape}")

@@ -1,0 +1,365 @@
+HloModule IrToHlo.345, entry_computation_layout={(f32[256,8192]{1,0}, f32[8192,256]{1,0}, f32[], f32[256,256]{1,0}, f32[128,256]{1,0}, /*index=5*/f32[2,10,256]{2,1,0}, f32[256]{0}, f32[], f32[128,256]{1,0}, f32[256,256]{1,0}, /*index=10*/f32[256]{0}, f32[8192,256]{1,0})->(f32[2,10,256]{2,1,0}, f32[2,10,256]{2,1,0})}
+
+%AddComputation.21 (x.22: f32[], y.23: f32[]) -> f32[] {
+  %x.22 = f32[] parameter(0)
+  %y.23 = f32[] parameter(1)
+  ROOT %add.24 = f32[] add(f32[] %x.22, f32[] %y.23)
+}
+
+%MaxComputation.98 (x.99: f32[], y.100: f32[]) -> f32[] {
+  %x.99 = f32[] parameter(0)
+  %y.100 = f32[] parameter(1)
+  ROOT %maximum.101 = f32[] maximum(f32[] %x.99, f32[] %y.100)
+}
+
+%AddComputation.107 (x.108: f32[], y.109: f32[]) -> f32[] {
+  %x.108 = f32[] parameter(0)
+  %y.109 = f32[] parameter(1)
+  ROOT %add.110 = f32[] add(f32[] %x.108, f32[] %y.109)
+}
+
+%AddComputation.134 (x.135: f32[], y.136: f32[]) -> f32[] {
+  %x.135 = f32[] parameter(0)
+  %y.136 = f32[] parameter(1)
+  ROOT %add.137 = f32[] add(f32[] %x.135, f32[] %y.136)
+}
+
+%AddComputation.192 (x.193: f32[], y.194: f32[]) -> f32[] {
+  %x.193 = f32[] parameter(0)
+  %y.194 = f32[] parameter(1)
+  ROOT %add.195 = f32[] add(f32[] %x.193, f32[] %y.194)
+}
+
+%MaxComputation.265 (x.266: f32[], y.267: f32[]) -> f32[] {
+  %x.266 = f32[] parameter(0)
+  %y.267 = f32[] parameter(1)
+  ROOT %maximum.268 = f32[] maximum(f32[] %x.266, f32[] %y.267)
+}
+
+%AddComputation.274 (x.275: f32[], y.276: f32[]) -> f32[] {
+  %x.275 = f32[] parameter(0)
+  %y.276 = f32[] parameter(1)
+  ROOT %add.277 = f32[] add(f32[] %x.275, f32[] %y.276)
+}
+
+%AddComputation.301 (x.302: f32[], y.303: f32[]) -> f32[] {
+  %x.302 = f32[] parameter(0)
+  %y.303 = f32[] parameter(1)
+  ROOT %add.304 = f32[] add(f32[] %x.302, f32[] %y.303)
+}
+
+ENTRY %IrToHlo.345 (p0.2: f32[256,8192], p1.4: f32[8192,256], p2.7: f32[], p3.10: f32[256,256], p4.12: f32[128,256], p5.16: f32[2,10,256], p6.44: f32[256], p7.62: f32[], p8.63: f32[128,256], p9.80: f32[256,256], p10.157: f32[256], p11.163: f32[8192,256]) -> (f32[2,10,256], f32[2,10,256]) {
+  %p5.16 = f32[2,10,256]{2,1,0} parameter(5)
+  %p6.44 = f32[256]{0} parameter(6)
+  %broadcast.45 = f32[2,10,256]{2,1,0} broadcast(f32[256]{0} %p6.44), dimensions={2}
+  %constant.15 = f32[] constant(2)
+  %broadcast.17 = f32[2,10,256]{2,1,0} broadcast(f32[] %constant.15), dimensions={}
+  %power.18 = f32[2,10,256]{2,1,0} power(f32[2,10,256]{2,1,0} %p5.16, f32[2,10,256]{2,1,0} %broadcast.17)
+  %constant.19 = f32[] constant(0)
+  %reduce.25 = f32[2,10]{1,0} reduce(f32[2,10,256]{2,1,0} %power.18, f32[] %constant.19), dimensions={2}, to_apply=%AddComputation.21
+  %constant.20 = s32[] constant(256)
+  %constant.26 = s32[] constant(0)
+  %compare.31 = pred[] compare(s32[] %constant.20, s32[] %constant.26), direction=NE
+  %constant.27 = f32[] constant(1)
+  %convert.29 = f32[] convert(s32[] %constant.20)
+  %divide.30 = f32[] divide(f32[] %constant.27, f32[] %convert.29)
+  %constant.28 = f32[] constant(nan)
+  %select.32 = f32[] select(pred[] %compare.31, f32[] %divide.30, f32[] %constant.28)
+  %broadcast.33 = f32[2,10]{1,0} broadcast(f32[] %select.32), dimensions={}
+  %multiply.34 = f32[2,10]{1,0} multiply(f32[2,10]{1,0} %reduce.25, f32[2,10]{1,0} %broadcast.33)
+  %reshape.35 = f32[2,10,1]{2,1,0} reshape(f32[2,10]{1,0} %multiply.34)
+  %convert.36 = f32[2,10,1]{2,1,0} convert(f32[2,10,1]{2,1,0} %reshape.35)
+  %p2.7 = f32[] parameter(2)
+  %constant.14 = f32[] constant(1)
+  %multiply.37 = f32[] multiply(f32[] %p2.7, f32[] %constant.14)
+  %broadcast.38 = f32[2,10,1]{2,1,0} broadcast(f32[] %multiply.37), dimensions={}
+  %add.39 = f32[2,10,1]{2,1,0} add(f32[2,10,1]{2,1,0} %convert.36, f32[2,10,1]{2,1,0} %broadcast.38)
+  %rsqrt.40 = f32[2,10,1]{2,1,0} rsqrt(f32[2,10,1]{2,1,0} %add.39)
+  %reshape.41 = f32[2,10]{1,0} reshape(f32[2,10,1]{2,1,0} %rsqrt.40)
+  %broadcast.42 = f32[2,10,256]{2,1,0} broadcast(f32[2,10]{1,0} %reshape.41), dimensions={0,1}
+  %multiply.43 = f32[2,10,256]{2,1,0} multiply(f32[2,10,256]{2,1,0} %p5.16, f32[2,10,256]{2,1,0} %broadcast.42)
+  %multiply.46 = f32[2,10,256]{2,1,0} multiply(f32[2,10,256]{2,1,0} %broadcast.45, f32[2,10,256]{2,1,0} %multiply.43)
+  %reshape.82 = f32[20,256]{1,0} reshape(f32[2,10,256]{2,1,0} %multiply.46)
+  %p9.80 = f32[256,256]{1,0} parameter(9)
+  %transpose.81 = f32[256,256]{0,1} transpose(f32[256,256]{1,0} %p9.80), dimensions={1,0}
+  %dot.83 = f32[20,256]{1,0} dot(f32[20,256]{1,0} %reshape.82, f32[256,256]{0,1} %transpose.81), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+  %reshape.84 = f32[2,10,256]{2,1,0} reshape(f32[20,256]{1,0} %dot.83)
+  %reshape.85 = f32[2,10,8,32]{3,2,1,0} reshape(f32[2,10,256]{2,1,0} %reshape.84)
+  %transpose.86 = f32[2,8,10,32]{3,1,2,0} transpose(f32[2,10,8,32]{3,2,1,0} %reshape.85), dimensions={0,2,1,3}
+  %reshape.87 = f32[2,8,10,32,1]{4,3,2,1,0} reshape(f32[2,8,10,32]{3,1,2,0} %transpose.86)
+  %reshape.88 = f32[2,8,10,1,32]{4,3,2,1,0} reshape(f32[2,8,10,32,1]{4,3,2,1,0} %reshape.87)
+  %transpose.89 = f32[2,8,10,32,1]{3,4,2,1,0} transpose(f32[2,8,10,1,32]{4,3,2,1,0} %reshape.88), dimensions={0,1,2,4,3}
+  %reshape.90 = f32[16,10,32]{2,1,0} reshape(f32[2,8,10,32,1]{3,4,2,1,0} %transpose.89)
+  %reshape.65 = f32[20,256]{1,0} reshape(f32[2,10,256]{2,1,0} %multiply.46)
+  %p8.63 = f32[128,256]{1,0} parameter(8)
+  %transpose.64 = f32[256,128]{0,1} transpose(f32[128,256]{1,0} %p8.63), dimensions={1,0}
+  %dot.66 = f32[20,128]{1,0} dot(f32[20,256]{1,0} %reshape.65, f32[256,128]{0,1} %transpose.64), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+  %reshape.67 = f32[2,10,128]{2,1,0} reshape(f32[20,128]{1,0} %dot.66)
+  %reshape.68 = f32[2,10,4,32]{3,2,1,0} reshape(f32[2,10,128]{2,1,0} %reshape.67)
+  %transpose.69 = f32[2,4,10,32]{3,1,2,0} transpose(f32[2,10,4,32]{3,2,1,0} %reshape.68), dimensions={0,2,1,3}
+  %reshape.70 = f32[2,4,1,10,32]{4,3,2,1,0} reshape(f32[2,4,10,32]{3,1,2,0} %transpose.69)
+  %broadcast.71 = f32[2,4,1,10,32]{4,3,2,1,0} broadcast(f32[2,4,1,10,32]{4,3,2,1,0} %reshape.70), dimensions={0,1,2,3,4}
+  %reshape.72 = f32[2,4,10,32]{3,2,1,0} reshape(f32[2,4,1,10,32]{4,3,2,1,0} %broadcast.71)
+  %broadcast.73 = f32[2,4,2,10,32]{4,3,2,1,0} broadcast(f32[2,4,10,32]{3,2,1,0} %reshape.72), dimensions={0,1,3,4}
+  %reshape.74 = f32[2,8,10,32]{3,2,1,0} reshape(f32[2,4,2,10,32]{4,3,2,1,0} %broadcast.73)
+  %reshape.75 = f32[2,8,10,32,1]{4,3,2,1,0} reshape(f32[2,8,10,32]{3,2,1,0} %reshape.74)
+  %reshape.76 = f32[2,8,10,1,32]{4,3,2,1,0} reshape(f32[2,8,10,32,1]{4,3,2,1,0} %reshape.75)
+  %transpose.77 = f32[2,8,1,10,32]{4,2,3,1,0} transpose(f32[2,8,10,1,32]{4,3,2,1,0} %reshape.76), dimensions={0,1,3,2,4}
+  %transpose.78 = f32[2,8,32,10,1]{2,4,3,1,0} transpose(f32[2,8,1,10,32]{4,2,3,1,0} %transpose.77), dimensions={0,1,4,3,2}
+  %reshape.79 = f32[16,32,10]{2,1,0} reshape(f32[2,8,32,10,1]{2,4,3,1,0} %transpose.78)
+  %dot.91 = f32[16,10,10]{2,1,0} dot(f32[16,10,32]{2,1,0} %reshape.90, f32[16,32,10]{2,1,0} %reshape.79), lhs_batch_dims={0}, lhs_contracting_dims={2}, rhs_batch_dims={0}, rhs_contracting_dims={1}
+  %reshape.92 = f32[2,8,10,1,10]{4,3,2,1,0} reshape(f32[16,10,10]{2,1,0} %dot.91)
+  %transpose.93 = f32[2,8,10,10,1]{3,4,2,1,0} transpose(f32[2,8,10,1,10]{4,3,2,1,0} %reshape.92), dimensions={0,1,2,4,3}
+  %reshape.94 = f32[2,8,10,10]{3,2,1,0} reshape(f32[2,8,10,10,1]{3,4,2,1,0} %transpose.93)
+  %p7.62 = f32[] parameter(7)
+  %broadcast.95 = f32[2,8,10,10]{3,2,1,0} broadcast(f32[] %p7.62), dimensions={}
+  %divide.96 = f32[2,8,10,10]{3,2,1,0} divide(f32[2,8,10,10]{3,2,1,0} %reshape.94, f32[2,8,10,10]{3,2,1,0} %broadcast.95)
+  %constant.97 = f32[] constant(-inf)
+  %reduce.102 = f32[2,8,10]{2,1,0} reduce(f32[2,8,10,10]{3,2,1,0} %divide.96, f32[] %constant.97), dimensions={3}, to_apply=%MaxComputation.98
+  %broadcast.103 = f32[2,8,10,10]{3,2,1,0} broadcast(f32[2,8,10]{2,1,0} %reduce.102), dimensions={0,1,2}
+  %subtract.104 = f32[2,8,10,10]{3,2,1,0} subtract(f32[2,8,10,10]{3,2,1,0} %divide.96, f32[2,8,10,10]{3,2,1,0} %broadcast.103)
+  %exponential.105 = f32[2,8,10,10]{3,2,1,0} exponential(f32[2,8,10,10]{3,2,1,0} %subtract.104)
+  %constant.106 = f32[] constant(0)
+  %reduce.111 = f32[2,8,10]{2,1,0} reduce(f32[2,8,10,10]{3,2,1,0} %exponential.105, f32[] %constant.106), dimensions={3}, to_apply=%AddComputation.107
+  %broadcast.112 = f32[2,8,10,10]{3,2,1,0} broadcast(f32[2,8,10]{2,1,0} %reduce.111), dimensions={0,1,2}
+  %divide.113 = f32[2,8,10,10]{3,2,1,0} divide(f32[2,8,10,10]{3,2,1,0} %exponential.105, f32[2,8,10,10]{3,2,1,0} %broadcast.112)
+  %reshape.114 = f32[2,8,10,10,1]{4,3,2,1,0} reshape(f32[2,8,10,10]{3,2,1,0} %divide.113)
+  %reshape.115 = f32[2,8,10,1,10]{4,3,2,1,0} reshape(f32[2,8,10,10,1]{4,3,2,1,0} %reshape.114)
+  %transpose.116 = f32[2,8,10,10,1]{3,4,2,1,0} transpose(f32[2,8,10,1,10]{4,3,2,1,0} %reshape.115), dimensions={0,1,2,4,3}
+  %reshape.117 = f32[16,10,10]{2,1,0} reshape(f32[2,8,10,10,1]{3,4,2,1,0} %transpose.116)
+  %reshape.47 = f32[20,256]{1,0} reshape(f32[2,10,256]{2,1,0} %multiply.46)
+  %p4.12 = f32[128,256]{1,0} parameter(4)
+  %transpose.13 = f32[256,128]{0,1} transpose(f32[128,256]{1,0} %p4.12), dimensions={1,0}
+  %dot.48 = f32[20,128]{1,0} dot(f32[20,256]{1,0} %reshape.47, f32[256,128]{0,1} %transpose.13), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+  %reshape.49 = f32[2,10,128]{2,1,0} reshape(f32[20,128]{1,0} %dot.48)
+  %reshape.50 = f32[2,10,4,32]{3,2,1,0} reshape(f32[2,10,128]{2,1,0} %reshape.49)
+  %transpose.51 = f32[2,4,10,32]{3,1,2,0} transpose(f32[2,10,4,32]{3,2,1,0} %reshape.50), dimensions={0,2,1,3}
+  %reshape.52 = f32[2,4,1,10,32]{4,3,2,1,0} reshape(f32[2,4,10,32]{3,1,2,0} %transpose.51)
+  %broadcast.53 = f32[2,4,1,10,32]{4,3,2,1,0} broadcast(f32[2,4,1,10,32]{4,3,2,1,0} %reshape.52), dimensions={0,1,2,3,4}
+  %reshape.54 = f32[2,4,10,32]{3,2,1,0} reshape(f32[2,4,1,10,32]{4,3,2,1,0} %broadcast.53)
+  %broadcast.55 = f32[2,4,2,10,32]{4,3,2,1,0} broadcast(f32[2,4,10,32]{3,2,1,0} %reshape.54), dimensions={0,1,3,4}
+  %reshape.56 = f32[2,8,10,32]{3,2,1,0} reshape(f32[2,4,2,10,32]{4,3,2,1,0} %broadcast.55)
+  %reshape.57 = f32[2,8,10,32,1]{4,3,2,1,0} reshape(f32[2,8,10,32]{3,2,1,0} %reshape.56)
+  %reshape.58 = f32[2,8,10,1,32]{4,3,2,1,0} reshape(f32[2,8,10,32,1]{4,3,2,1,0} %reshape.57)
+  %transpose.59 = f32[2,8,1,32,10]{3,2,4,1,0} transpose(f32[2,8,10,1,32]{4,3,2,1,0} %reshape.58), dimensions={0,1,3,4,2}
+  %transpose.60 = f32[2,8,10,32,1]{3,4,2,1,0} transpose(f32[2,8,1,32,10]{3,2,4,1,0} %transpose.59), dimensions={0,1,4,3,2}
+  %reshape.61 = f32[16,10,32]{2,1,0} reshape(f32[2,8,10,32,1]{3,4,2,1,0} %transpose.60)
+  %dot.118 = f32[16,10,32]{2,1,0} dot(f32[16,10,10]{2,1,0} %reshape.117, f32[16,10,32]{2,1,0} %reshape.61), lhs_batch_dims={0}, lhs_contracting_dims={2}, rhs_batch_dims={0}, rhs_contracting_dims={1}
+  %reshape.119 = f32[2,8,10,1,32]{4,3,2,1,0} reshape(f32[16,10,32]{2,1,0} %dot.118)
+  %transpose.120 = f32[2,8,10,32,1]{3,4,2,1,0} transpose(f32[2,8,10,1,32]{4,3,2,1,0} %reshape.119), dimensions={0,1,2,4,3}
+  %reshape.121 = f32[2,8,10,32]{3,2,1,0} reshape(f32[2,8,10,32,1]{3,4,2,1,0} %transpose.120)
+  %transpose.122 = f32[2,10,8,32]{3,1,2,0} transpose(f32[2,8,10,32]{3,2,1,0} %reshape.121), dimensions={0,2,1,3}
+  %reshape.123 = f32[2,10,256]{2,1,0} reshape(f32[2,10,8,32]{3,1,2,0} %transpose.122)
+  %reshape.124 = f32[20,256]{1,0} reshape(f32[2,10,256]{2,1,0} %reshape.123)
+  %p3.10 = f32[256,256]{1,0} parameter(3)
+  %transpose.11 = f32[256,256]{0,1} transpose(f32[256,256]{1,0} %p3.10), dimensions={1,0}
+  %dot.125 = f32[20,256]{1,0} dot(f32[20,256]{1,0} %reshape.124, f32[256,256]{0,1} %transpose.11), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+  %reshape.126 = f32[2,10,256]{2,1,0} reshape(f32[20,256]{1,0} %dot.125)
+  %constant.9 = f32[] constant(1)
+  %broadcast.127 = f32[2,10,256]{2,1,0} broadcast(f32[] %constant.9), dimensions={}
+  %multiply.128 = f32[2,10,256]{2,1,0} multiply(f32[2,10,256]{2,1,0} %reshape.126, f32[2,10,256]{2,1,0} %broadcast.127)
+  %add.129 = f32[2,10,256]{2,1,0} add(f32[2,10,256]{2,1,0} %p5.16, f32[2,10,256]{2,1,0} %multiply.128)
+  %p10.157 = f32[256]{0} parameter(10)
+  %broadcast.158 = f32[2,10,256]{2,1,0} broadcast(f32[256]{0} %p10.157), dimensions={2}
+  %constant.8 = f32[] constant(2)
+  %broadcast.130 = f32[2,10,256]{2,1,0} broadcast(f32[] %constant.8), dimensions={}
+  %power.131 = f32[2,10,256]{2,1,0} power(f32[2,10,256]{2,1,0} %add.129, f32[2,10,256]{2,1,0} %broadcast.130)
+  %constant.132 = f32[] constant(0)
+  %reduce.138 = f32[2,10]{1,0} reduce(f32[2,10,256]{2,1,0} %power.131, f32[] %constant.132), dimensions={2}, to_apply=%AddComputation.134
+  %constant.133 = s32[] constant(256)
+  %constant.139 = s32[] constant(0)
+  %compare.144 = pred[] compare(s32[] %constant.133, s32[] %constant.139), direction=NE
+  %constant.140 = f32[] constant(1)
+  %convert.142 = f32[] convert(s32[] %constant.133)
+  %divide.143 = f32[] divide(f32[] %constant.140, f32[] %convert.142)
+  %constant.141 = f32[] constant(nan)
+  %select.145 = f32[] select(pred[] %compare.144, f32[] %divide.143, f32[] %constant.141)
+  %broadcast.146 = f32[2,10]{1,0} broadcast(f32[] %select.145), dimensions={}
+  %multiply.147 = f32[2,10]{1,0} multiply(f32[2,10]{1,0} %reduce.138, f32[2,10]{1,0} %broadcast.146)
+  %reshape.148 = f32[2,10,1]{2,1,0} reshape(f32[2,10]{1,0} %multiply.147)
+  %convert.149 = f32[2,10,1]{2,1,0} convert(f32[2,10,1]{2,1,0} %reshape.148)
+  %constant.6 = f32[] constant(1)
+  %multiply.150 = f32[] multiply(f32[] %p2.7, f32[] %constant.6)
+  %broadcast.151 = f32[2,10,1]{2,1,0} broadcast(f32[] %multiply.150), dimensions={}
+  %add.152 = f32[2,10,1]{2,1,0} add(f32[2,10,1]{2,1,0} %convert.149, f32[2,10,1]{2,1,0} %broadcast.151)
+  %rsqrt.153 = f32[2,10,1]{2,1,0} rsqrt(f32[2,10,1]{2,1,0} %add.152)
+  %reshape.154 = f32[2,10]{1,0} reshape(f32[2,10,1]{2,1,0} %rsqrt.153)
+  %broadcast.155 = f32[2,10,256]{2,1,0} broadcast(f32[2,10]{1,0} %reshape.154), dimensions={0,1}
+  %multiply.156 = f32[2,10,256]{2,1,0} multiply(f32[2,10,256]{2,1,0} %add.129, f32[2,10,256]{2,1,0} %broadcast.155)
+  %multiply.159 = f32[2,10,256]{2,1,0} multiply(f32[2,10,256]{2,1,0} %broadcast.158, f32[2,10,256]{2,1,0} %multiply.156)
+  %reshape.165 = f32[20,256]{1,0} reshape(f32[2,10,256]{2,1,0} %multiply.159)
+  %p11.163 = f32[8192,256]{1,0} parameter(11)
+  %transpose.164 = f32[256,8192]{0,1} transpose(f32[8192,256]{1,0} %p11.163), dimensions={1,0}
+  %dot.166 = f32[20,8192]{1,0} dot(f32[20,256]{1,0} %reshape.165, f32[256,8192]{0,1} %transpose.164), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+  %reshape.167 = f32[2,10,8192]{2,1,0} reshape(f32[20,8192]{1,0} %dot.166)
+  %logistic.168 = f32[2,10,8192]{2,1,0} logistic(f32[2,10,8192]{2,1,0} %reshape.167)
+  %multiply.169 = f32[2,10,8192]{2,1,0} multiply(f32[2,10,8192]{2,1,0} %reshape.167, f32[2,10,8192]{2,1,0} %logistic.168)
+  %reshape.160 = f32[20,256]{1,0} reshape(f32[2,10,256]{2,1,0} %multiply.159)
+  %p1.4 = f32[8192,256]{1,0} parameter(1)
+  %transpose.5 = f32[256,8192]{0,1} transpose(f32[8192,256]{1,0} %p1.4), dimensions={1,0}
+  %dot.161 = f32[20,8192]{1,0} dot(f32[20,256]{1,0} %reshape.160, f32[256,8192]{0,1} %transpose.5), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+  %reshape.162 = f32[2,10,8192]{2,1,0} reshape(f32[20,8192]{1,0} %dot.161)
+  %multiply.170 = f32[2,10,8192]{2,1,0} multiply(f32[2,10,8192]{2,1,0} %multiply.169, f32[2,10,8192]{2,1,0} %reshape.162)
+  %reshape.171 = f32[20,8192]{1,0} reshape(f32[2,10,8192]{2,1,0} %multiply.170)
+  %p0.2 = f32[256,8192]{1,0} parameter(0)
+  %transpose.3 = f32[8192,256]{0,1} transpose(f32[256,8192]{1,0} %p0.2), dimensions={1,0}
+  %dot.172 = f32[20,256]{1,0} dot(f32[20,8192]{1,0} %reshape.171, f32[8192,256]{0,1} %transpose.3), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+  %reshape.173 = f32[2,10,256]{2,1,0} reshape(f32[20,256]{1,0} %dot.172)
+  %constant.1 = f32[] constant(1)
+  %broadcast.174 = f32[2,10,256]{2,1,0} broadcast(f32[] %constant.1), dimensions={}
+  %multiply.175 = f32[2,10,256]{2,1,0} multiply(f32[2,10,256]{2,1,0} %reshape.173, f32[2,10,256]{2,1,0} %broadcast.174)
+  %add.176 = f32[2,10,256]{2,1,0} add(f32[2,10,256]{2,1,0} %add.129, f32[2,10,256]{2,1,0} %multiply.175)
+  %broadcast.215 = f32[2,10,256]{2,1,0} broadcast(f32[256]{0} %p6.44), dimensions={2}
+  %constant.187 = f32[] constant(2)
+  %broadcast.188 = f32[2,10,256]{2,1,0} broadcast(f32[] %constant.187), dimensions={}
+  %power.189 = f32[2,10,256]{2,1,0} power(f32[2,10,256]{2,1,0} %p5.16, f32[2,10,256]{2,1,0} %broadcast.188)
+  %constant.190 = f32[] constant(0)
+  %reduce.196 = f32[2,10]{1,0} reduce(f32[2,10,256]{2,1,0} %power.189, f32[] %constant.190), dimensions={2}, to_apply=%AddComputation.192
+  %constant.191 = s32[] constant(256)
+  %constant.197 = s32[] constant(0)
+  %compare.202 = pred[] compare(s32[] %constant.191, s32[] %constant.197), direction=NE
+  %constant.198 = f32[] constant(1)
+  %convert.200 = f32[] convert(s32[] %constant.191)
+  %divide.201 = f32[] divide(f32[] %constant.198, f32[] %convert.200)
+  %constant.199 = f32[] constant(nan)
+  %select.203 = f32[] select(pred[] %compare.202, f32[] %divide.201, f32[] %constant.199)
+  %broadcast.204 = f32[2,10]{1,0} broadcast(f32[] %select.203), dimensions={}
+  %multiply.205 = f32[2,10]{1,0} multiply(f32[2,10]{1,0} %reduce.196, f32[2,10]{1,0} %broadcast.204)
+  %reshape.206 = f32[2,10,1]{2,1,0} reshape(f32[2,10]{1,0} %multiply.205)
+  %convert.207 = f32[2,10,1]{2,1,0} convert(f32[2,10,1]{2,1,0} %reshape.206)
+  %constant.186 = f32[] constant(1)
+  %multiply.208 = f32[] multiply(f32[] %p2.7, f32[] %constant.186)
+  %broadcast.209 = f32[2,10,1]{2,1,0} broadcast(f32[] %multiply.208), dimensions={}
+  %add.210 = f32[2,10,1]{2,1,0} add(f32[2,10,1]{2,1,0} %convert.207, f32[2,10,1]{2,1,0} %broadcast.209)
+  %rsqrt.211 = f32[2,10,1]{2,1,0} rsqrt(f32[2,10,1]{2,1,0} %add.210)
+  %reshape.212 = f32[2,10]{1,0} reshape(f32[2,10,1]{2,1,0} %rsqrt.211)
+  %broadcast.213 = f32[2,10,256]{2,1,0} broadcast(f32[2,10]{1,0} %reshape.212), dimensions={0,1}
+  %multiply.214 = f32[2,10,256]{2,1,0} multiply(f32[2,10,256]{2,1,0} %p5.16, f32[2,10,256]{2,1,0} %broadcast.213)
+  %multiply.216 = f32[2,10,256]{2,1,0} multiply(f32[2,10,256]{2,1,0} %broadcast.215, f32[2,10,256]{2,1,0} %multiply.214)
+  %reshape.249 = f32[20,256]{1,0} reshape(f32[2,10,256]{2,1,0} %multiply.216)
+  %transpose.248 = f32[256,256]{0,1} transpose(f32[256,256]{1,0} %p9.80), dimensions={1,0}
+  %dot.250 = f32[20,256]{1,0} dot(f32[20,256]{1,0} %reshape.249, f32[256,256]{0,1} %transpose.248), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+  %reshape.251 = f32[2,10,256]{2,1,0} reshape(f32[20,256]{1,0} %dot.250)
+  %reshape.252 = f32[2,10,8,32]{3,2,1,0} reshape(f32[2,10,256]{2,1,0} %reshape.251)
+  %transpose.253 = f32[2,8,10,32]{3,1,2,0} transpose(f32[2,10,8,32]{3,2,1,0} %reshape.252), dimensions={0,2,1,3}
+  %reshape.254 = f32[2,8,10,32,1]{4,3,2,1,0} reshape(f32[2,8,10,32]{3,1,2,0} %transpose.253)
+  %reshape.255 = f32[2,8,10,1,32]{4,3,2,1,0} reshape(f32[2,8,10,32,1]{4,3,2,1,0} %reshape.254)
+  %transpose.256 = f32[2,8,10,32,1]{3,4,2,1,0} transpose(f32[2,8,10,1,32]{4,3,2,1,0} %reshape.255), dimensions={0,1,2,4,3}
+  %reshape.257 = f32[16,10,32]{2,1,0} reshape(f32[2,8,10,32,1]{3,4,2,1,0} %transpose.256)
+  %reshape.233 = f32[20,256]{1,0} reshape(f32[2,10,256]{2,1,0} %multiply.216)
+  %transpose.232 = f32[256,128]{0,1} transpose(f32[128,256]{1,0} %p8.63), dimensions={1,0}
+  %dot.234 = f32[20,128]{1,0} dot(f32[20,256]{1,0} %reshape.233, f32[256,128]{0,1} %transpose.232), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+  %reshape.235 = f32[2,10,128]{2,1,0} reshape(f32[20,128]{1,0} %dot.234)
+  %reshape.236 = f32[2,10,4,32]{3,2,1,0} reshape(f32[2,10,128]{2,1,0} %reshape.235)
+  %transpose.237 = f32[2,4,10,32]{3,1,2,0} transpose(f32[2,10,4,32]{3,2,1,0} %reshape.236), dimensions={0,2,1,3}
+  %reshape.238 = f32[2,4,1,10,32]{4,3,2,1,0} reshape(f32[2,4,10,32]{3,1,2,0} %transpose.237)
+  %broadcast.239 = f32[2,4,1,10,32]{4,3,2,1,0} broadcast(f32[2,4,1,10,32]{4,3,2,1,0} %reshape.238), dimensions={0,1,2,3,4}
+  %reshape.240 = f32[2,4,10,32]{3,2,1,0} reshape(f32[2,4,1,10,32]{4,3,2,1,0} %broadcast.239)
+  %broadcast.241 = f32[2,4,2,10,32]{4,3,2,1,0} broadcast(f32[2,4,10,32]{3,2,1,0} %reshape.240), dimensions={0,1,3,4}
+  %reshape.242 = f32[2,8,10,32]{3,2,1,0} reshape(f32[2,4,2,10,32]{4,3,2,1,0} %broadcast.241)
+  %reshape.243 = f32[2,8,10,32,1]{4,3,2,1,0} reshape(f32[2,8,10,32]{3,2,1,0} %reshape.242)
+  %reshape.244 = f32[2,8,10,1,32]{4,3,2,1,0} reshape(f32[2,8,10,32,1]{4,3,2,1,0} %reshape.243)
+  %transpose.245 = f32[2,8,1,10,32]{4,2,3,1,0} transpose(f32[2,8,10,1,32]{4,3,2,1,0} %reshape.244), dimensions={0,1,3,2,4}
+  %transpose.246 = f32[2,8,32,10,1]{2,4,3,1,0} transpose(f32[2,8,1,10,32]{4,2,3,1,0} %transpose.245), dimensions={0,1,4,3,2}
+  %reshape.247 = f32[16,32,10]{2,1,0} reshape(f32[2,8,32,10,1]{2,4,3,1,0} %transpose.246)
+  %dot.258 = f32[16,10,10]{2,1,0} dot(f32[16,10,32]{2,1,0} %reshape.257, f32[16,32,10]{2,1,0} %reshape.247), lhs_batch_dims={0}, lhs_contracting_dims={2}, rhs_batch_dims={0}, rhs_contracting_dims={1}
+  %reshape.259 = f32[2,8,10,1,10]{4,3,2,1,0} reshape(f32[16,10,10]{2,1,0} %dot.258)
+  %transpose.260 = f32[2,8,10,10,1]{3,4,2,1,0} transpose(f32[2,8,10,1,10]{4,3,2,1,0} %reshape.259), dimensions={0,1,2,4,3}
+  %reshape.261 = f32[2,8,10,10]{3,2,1,0} reshape(f32[2,8,10,10,1]{3,4,2,1,0} %transpose.260)
+  %broadcast.262 = f32[2,8,10,10]{3,2,1,0} broadcast(f32[] %p7.62), dimensions={}
+  %divide.263 = f32[2,8,10,10]{3,2,1,0} divide(f32[2,8,10,10]{3,2,1,0} %reshape.261, f32[2,8,10,10]{3,2,1,0} %broadcast.262)
+  %constant.264 = f32[] constant(-inf)
+  %reduce.269 = f32[2,8,10]{2,1,0} reduce(f32[2,8,10,10]{3,2,1,0} %divide.263, f32[] %constant.264), dimensions={3}, to_apply=%MaxComputation.265
+  %broadcast.270 = f32[2,8,10,10]{3,2,1,0} broadcast(f32[2,8,10]{2,1,0} %reduce.269), dimensions={0,1,2}
+  %subtract.271 = f32[2,8,10,10]{3,2,1,0} subtract(f32[2,8,10,10]{3,2,1,0} %divide.263, f32[2,8,10,10]{3,2,1,0} %broadcast.270)
+  %exponential.272 = f32[2,8,10,10]{3,2,1,0} exponential(f32[2,8,10,10]{3,2,1,0} %subtract.271)
+  %constant.273 = f32[] constant(0)
+  %reduce.278 = f32[2,8,10]{2,1,0} reduce(f32[2,8,10,10]{3,2,1,0} %exponential.272, f32[] %constant.273), dimensions={3}, to_apply=%AddComputation.274
+  %broadcast.279 = f32[2,8,10,10]{3,2,1,0} broadcast(f32[2,8,10]{2,1,0} %reduce.278), dimensions={0,1,2}
+  %divide.280 = f32[2,8,10,10]{3,2,1,0} divide(f32[2,8,10,10]{3,2,1,0} %exponential.272, f32[2,8,10,10]{3,2,1,0} %broadcast.279)
+  %reshape.281 = f32[2,8,10,10,1]{4,3,2,1,0} reshape(f32[2,8,10,10]{3,2,1,0} %divide.280)
+  %reshape.282 = f32[2,8,10,1,10]{4,3,2,1,0} reshape(f32[2,8,10,10,1]{4,3,2,1,0} %reshape.281)
+  %transpose.283 = f32[2,8,10,10,1]{3,4,2,1,0} transpose(f32[2,8,10,1,10]{4,3,2,1,0} %reshape.282), dimensions={0,1,2,4,3}
+  %reshape.284 = f32[16,10,10]{2,1,0} reshape(f32[2,8,10,10,1]{3,4,2,1,0} %transpose.283)
+  %reshape.217 = f32[20,256]{1,0} reshape(f32[2,10,256]{2,1,0} %multiply.216)
+  %transpose.185 = f32[256,128]{0,1} transpose(f32[128,256]{1,0} %p4.12), dimensions={1,0}
+  %dot.218 = f32[20,128]{1,0} dot(f32[20,256]{1,0} %reshape.217, f32[256,128]{0,1} %transpose.185), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+  %reshape.219 = f32[2,10,128]{2,1,0} reshape(f32[20,128]{1,0} %dot.218)
+  %reshape.220 = f32[2,10,4,32]{3,2,1,0} reshape(f32[2,10,128]{2,1,0} %reshape.219)
+  %transpose.221 = f32[2,4,10,32]{3,1,2,0} transpose(f32[2,10,4,32]{3,2,1,0} %reshape.220), dimensions={0,2,1,3}
+  %reshape.222 = f32[2,4,1,10,32]{4,3,2,1,0} reshape(f32[2,4,10,32]{3,1,2,0} %transpose.221)
+  %broadcast.223 = f32[2,4,1,10,32]{4,3,2,1,0} broadcast(f32[2,4,1,10,32]{4,3,2,1,0} %reshape.222), dimensions={0,1,2,3,4}
+  %reshape.224 = f32[2,4,10,32]{3,2,1,0} reshape(f32[2,4,1,10,32]{4,3,2,1,0} %broadcast.223)
+  %broadcast.225 = f32[2,4,2,10,32]{4,3,2,1,0} broadcast(f32[2,4,10,32]{3,2,1,0} %reshape.224), dimensions={0,1,3,4}
+  %reshape.226 = f32[2,8,10,32]{3,2,1,0} reshape(f32[2,4,2,10,32]{4,3,2,1,0} %broadcast.225)
+  %reshape.227 = f32[2,8,10,32,1]{4,3,2,1,0} reshape(f32[2,8,10,32]{3,2,1,0} %reshape.226)
+  %reshape.228 = f32[2,8,10,1,32]{4,3,2,1,0} reshape(f32[2,8,10,32,1]{4,3,2,1,0} %reshape.227)
+  %transpose.229 = f32[2,8,1,32,10]{3,2,4,1,0} transpose(f32[2,8,10,1,32]{4,3,2,1,0} %reshape.228), dimensions={0,1,3,4,2}
+  %transpose.230 = f32[2,8,10,32,1]{3,4,2,1,0} transpose(f32[2,8,1,32,10]{3,2,4,1,0} %transpose.229), dimensions={0,1,4,3,2}
+  %reshape.231 = f32[16,10,32]{2,1,0} reshape(f32[2,8,10,32,1]{3,4,2,1,0} %transpose.230)
+  %dot.285 = f32[16,10,32]{2,1,0} dot(f32[16,10,10]{2,1,0} %reshape.284, f32[16,10,32]{2,1,0} %reshape.231), lhs_batch_dims={0}, lhs_contracting_dims={2}, rhs_batch_dims={0}, rhs_contracting_dims={1}
+  %reshape.286 = f32[2,8,10,1,32]{4,3,2,1,0} reshape(f32[16,10,32]{2,1,0} %dot.285)
+  %transpose.287 = f32[2,8,10,32,1]{3,4,2,1,0} transpose(f32[2,8,10,1,32]{4,3,2,1,0} %reshape.286), dimensions={0,1,2,4,3}
+  %reshape.288 = f32[2,8,10,32]{3,2,1,0} reshape(f32[2,8,10,32,1]{3,4,2,1,0} %transpose.287)
+  %transpose.289 = f32[2,10,8,32]{3,1,2,0} transpose(f32[2,8,10,32]{3,2,1,0} %reshape.288), dimensions={0,2,1,3}
+  %reshape.290 = f32[2,10,256]{2,1,0} reshape(f32[2,10,8,32]{3,1,2,0} %transpose.289)
+  %reshape.291 = f32[20,256]{1,0} reshape(f32[2,10,256]{2,1,0} %reshape.290)
+  %transpose.184 = f32[256,256]{0,1} transpose(f32[256,256]{1,0} %p3.10), dimensions={1,0}
+  %dot.292 = f32[20,256]{1,0} dot(f32[20,256]{1,0} %reshape.291, f32[256,256]{0,1} %transpose.184), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+  %reshape.293 = f32[2,10,256]{2,1,0} reshape(f32[20,256]{1,0} %dot.292)
+  %constant.183 = f32[] constant(1)
+  %broadcast.294 = f32[2,10,256]{2,1,0} broadcast(f32[] %constant.183), dimensions={}
+  %multiply.295 = f32[2,10,256]{2,1,0} multiply(f32[2,10,256]{2,1,0} %reshape.293, f32[2,10,256]{2,1,0} %broadcast.294)
+  %add.296 = f32[2,10,256]{2,1,0} add(f32[2,10,256]{2,1,0} %p5.16, f32[2,10,256]{2,1,0} %multiply.295)
+  %broadcast.324 = f32[2,10,256]{2,1,0} broadcast(f32[256]{0} %p10.157), dimensions={2}
+  %constant.182 = f32[] constant(2)
+  %broadcast.297 = f32[2,10,256]{2,1,0} broadcast(f32[] %constant.182), dimensions={}
+  %power.298 = f32[2,10,256]{2,1,0} power(f32[2,10,256]{2,1,0} %add.296, f32[2,10,256]{2,1,0} %broadcast.297)
+  %constant.299 = f32[] constant(0)
+  %reduce.305 = f32[2,10]{1,0} reduce(f32[2,10,256]{2,1,0} %power.298, f32[] %constant.299), dimensions={2}, to_apply=%AddComputation.301
+  %constant.300 = s32[] constant(256)
+  %constant.306 = s32[] constant(0)
+  %compare.311 = pred[] compare(s32[] %constant.300, s32[] %constant.306), direction=NE
+  %constant.307 = f32[] constant(1)
+  %convert.309 = f32[] convert(s32[] %constant.300)
+  %divide.310 = f32[] divide(f32[] %constant.307, f32[] %convert.309)
+  %constant.308 = f32[] constant(nan)
+  %select.312 = f32[] select(pred[] %compare.311, f32[] %divide.310, f32[] %constant.308)
+  %broadcast.313 = f32[2,10]{1,0} broadcast(f32[] %select.312), dimensions={}
+  %multiply.314 = f32[2,10]{1,0} multiply(f32[2,10]{1,0} %reduce.305, f32[2,10]{1,0} %broadcast.313)
+  %reshape.315 = f32[2,10,1]{2,1,0} reshape(f32[2,10]{1,0} %multiply.314)
+  %convert.316 = f32[2,10,1]{2,1,0} convert(f32[2,10,1]{2,1,0} %reshape.315)
+  %constant.181 = f32[] constant(1)
+  %multiply.317 = f32[] multiply(f32[] %p2.7, f32[] %constant.181)
+  %broadcast.318 = f32[2,10,1]{2,1,0} broadcast(f32[] %multiply.317), dimensions={}
+  %add.319 = f32[2,10,1]{2,1,0} add(f32[2,10,1]{2,1,0} %convert.316, f32[2,10,1]{2,1,0} %broadcast.318)
+  %rsqrt.320 = f32[2,10,1]{2,1,0} rsqrt(f32[2,10,1]{2,1,0} %add.319)
+  %reshape.321 = f32[2,10]{1,0} reshape(f32[2,10,1]{2,1,0} %rsqrt.320)
+  %broadcast.322 = f32[2,10,256]{2,1,0} broadcast(f32[2,10]{1,0} %reshape.321), dimensions={0,1}
+  %multiply.323 = f32[2,10,256]{2,1,0} multiply(f32[2,10,256]{2,1,0} %add.296, f32[2,10,256]{2,1,0} %broadcast.322)
+  %multiply.325 = f32[2,10,256]{2,1,0} multiply(f32[2,10,256]{2,1,0} %broadcast.324, f32[2,10,256]{2,1,0} %multiply.323)
+  %reshape.330 = f32[20,256]{1,0} reshape(f32[2,10,256]{2,1,0} %multiply.325)
+  %transpose.329 = f32[256,8192]{0,1} transpose(f32[8192,256]{1,0} %p11.163), dimensions={1,0}
+  %dot.331 = f32[20,8192]{1,0} dot(f32[20,256]{1,0} %reshape.330, f32[256,8192]{0,1} %transpose.329), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+  %reshape.332 = f32[2,10,8192]{2,1,0} reshape(f32[20,8192]{1,0} %dot.331)
+  %logistic.333 = f32[2,10,8192]{2,1,0} logistic(f32[2,10,8192]{2,1,0} %reshape.332)
+  %multiply.334 = f32[2,10,8192]{2,1,0} multiply(f32[2,10,8192]{2,1,0} %reshape.332, f32[2,10,8192]{2,1,0} %logistic.333)
+  %reshape.326 = f32[20,256]{1,0} reshape(f32[2,10,256]{2,1,0} %multiply.325)
+  %transpose.180 = f32[256,8192]{0,1} transpose(f32[8192,256]{1,0} %p1.4), dimensions={1,0}
+  %dot.327 = f32[20,8192]{1,0} dot(f32[20,256]{1,0} %reshape.326, f32[256,8192]{0,1} %transpose.180), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+  %reshape.328 = f32[2,10,8192]{2,1,0} reshape(f32[20,8192]{1,0} %dot.327)
+  %multiply.335 = f32[2,10,8192]{2,1,0} multiply(f32[2,10,8192]{2,1,0} %multiply.334, f32[2,10,8192]{2,1,0} %reshape.328)
+  %reshape.336 = f32[20,8192]{1,0} reshape(f32[2,10,8192]{2,1,0} %multiply.335)
+  %transpose.179 = f32[8192,256]{0,1} transpose(f32[256,8192]{1,0} %p0.2), dimensions={1,0}
+  %dot.337 = f32[20,256]{1,0} dot(f32[20,8192]{1,0} %reshape.336, f32[8192,256]{0,1} %transpose.179), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+  %reshape.338 = f32[2,10,256]{2,1,0} reshape(f32[20,256]{1,0} %dot.337)
+  %constant.178 = f32[] constant(1)
+  %broadcast.339 = f32[2,10,256]{2,1,0} broadcast(f32[] %constant.178), dimensions={}
+  %multiply.340 = f32[2,10,256]{2,1,0} multiply(f32[2,10,256]{2,1,0} %reshape.338, f32[2,10,256]{2,1,0} %broadcast.339)
+  %add.341 = f32[2,10,256]{2,1,0} add(f32[2,10,256]{2,1,0} %add.296, f32[2,10,256]{2,1,0} %multiply.340)
+  %constant.177 = f32[] constant(0)
+  %broadcast.342 = f32[2,10,256]{2,1,0} broadcast(f32[] %constant.177), dimensions={}
+  %multiply.343 = f32[2,10,256]{2,1,0} multiply(f32[2,10,256]{2,1,0} %add.341, f32[2,10,256]{2,1,0} %broadcast.342)
+  ROOT %tuple.344 = (f32[2,10,256]{2,1,0}, f32[2,10,256]{2,1,0}) tuple(f32[2,10,256]{2,1,0} %add.176, f32[2,10,256]{2,1,0} %multiply.343)
+}
+
