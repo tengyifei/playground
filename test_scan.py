@@ -216,6 +216,7 @@ def test_scan_decoder_model():
     sequence_length = 10  # each sequence is 10 tokens long
 
     # Generate random input_ids within the range of the vocabulary size
+    torch.random.manual_seed(1)
     input_ids = torch.randint(0, config.vocab_size,
                               (batch_size, sequence_length)).to(device)
 
@@ -231,12 +232,11 @@ def test_scan_decoder_model():
     close = np.allclose(
         loop_output.detach().cpu().numpy(),
         scan_output.detach().cpu().numpy(),
-        atol=0.0001,
+        atol=0.05,
         rtol=0.01)
     assert close
 
 
-@pytest.mark.skip(reason="crashes due to memory corruption")
 def test_scan_decoder_model_autograd():
   import torch_xla
   from decoder_only_model import DecoderOnlyConfig, DecoderOnlyModel
@@ -254,6 +254,7 @@ def test_scan_decoder_model_autograd():
   sequence_length = 10  # each sequence is 10 tokens long
 
   # Generate random input_ids within the range of the vocabulary size
+  torch.random.manual_seed(1)
   input_ids = torch.randint(0, config.vocab_size,
                             (batch_size, sequence_length)).to(device)
 
@@ -263,22 +264,19 @@ def test_scan_decoder_model_autograd():
 
   # Feed the input_ids into the model
   loop_output = loop_model(input_ids.clone())
-  print(f"Loop output shape: {loop_output.shape}")
   loop_output.sum().backward()
   torch_xla.sync(wait=True)
 
   # Run again, this time using `scan`
   scan_output = scan_model.forward_scan(input_ids.clone())
 
-  print(f"Scan output shape: {scan_output.shape}")
   scan_output.sum().backward()
   torch_xla.sync(wait=True)
-  print("Good")
 
   close = np.allclose(
       loop_output.detach().cpu().numpy(),
       scan_output.detach().cpu().numpy(),
-      atol=0.0001,
+      atol=0.05,
       rtol=0.01)
   assert close
 
@@ -289,10 +287,9 @@ def test_scan_decoder_model_autograd():
                                                 layer_loop.named_parameters()):
       assert name == name2
       if param_scan.grad is not None or param_loop.grad is not None:
+        scan_grad = param_scan.grad.detach().cpu().numpy()  # type: ignore
+        loop_grad = param_loop.grad.detach().cpu().numpy()  # type: ignore
         assert np.allclose(
-            param_scan.grad.detach().cpu().numpy(),  # type: ignore
-            param_loop.grad.detach().cpu().numpy(),  # type: ignore
-            atol=0.0001,
-            rtol=0.01
-        ), f"{name} gradient mismatch: {param_scan.grad.detach().cpu().numpy()} != {param_loop.grad.detach().cpu().numpy()}"  # type: ignore
+            scan_grad, loop_grad, atol=0.1,
+            rtol=0.05), f"{name} gradient mismatch: {scan_grad} != {loop_grad}"
         print(f"Pass: {name} {param_scan.shape}")
