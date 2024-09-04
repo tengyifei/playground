@@ -1,5 +1,7 @@
 /data/
 /plugins/
+/logs/
+/results/
 
 
 # Byte-compiled / optimized / DLL files
