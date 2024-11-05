@@ -214,6 +214,7 @@ class DecoderOnlyModel(nn.Module):
         [DecoderLayer(config) for _ in range(config.num_hidden_layers)])
     self.norm = RMSNorm(config.hidden_size)
     self.output = nn.Linear(config.hidden_size, self.vocab_size, bias=False)
+    self.layers_sequential: nn.Module = nn.Sequential(*self.layers)
 
   def forward(
       self,
@@ -225,9 +226,7 @@ class DecoderOnlyModel(nn.Module):
     hidden_states = inputs_embeds
 
     # decoder layers
-    for decoder_layer in self.layers:
-      layer_outputs = decoder_layer(hidden_states)
-      hidden_states = layer_outputs
+    hidden_states = self.layers_sequential(hidden_states)
 
     hidden_states = self.norm(hidden_states)
     # [B, S, H] -> [B, S, V]
