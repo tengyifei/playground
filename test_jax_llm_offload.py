@@ -4,8 +4,12 @@ JAX implementation of a Decoder-Only Model with Training Profiling.
 This script mirrors the functionality of the PyTorch script,
 leveraging Flax for model definitions and Optax for optimization.
 Profiling is handled using TensorBoard's profiler.
+
+Includes a '--scan' command-line argument to use flax.linen.scan
+for iterating over decoder layers when specified.
 """
 
+import argparse  # For command-line argument parsing
 import jax
 import jax.numpy as jnp
 from flax import linen as nn
@@ -20,7 +24,6 @@ from functools import partial
 import math
 import time
 import os
-from functools import partial
 from tensorboardX import SummaryWriter
 
 # ----------------------------
@@ -155,11 +158,16 @@ class MLP(nn.Module):
     return down_proj
 
 
+# Import offloadable from partial_eval for host offloading
 from jax._src.interpreters import partial_eval as pe
+global_offload = False
 
 
 def offload_all(prim, *_, **params):
-  return pe.Offloadable(src="device", dst="pinned_host")
+  if global_offload:
+    return pe.Offloadable(src="device", dst="pinned_host")
+  else:
+    return False  # Do not offload during initialization
 
 
 class DecoderLayer(nn.Module):
@@ -171,12 +179,10 @@ class DecoderLayer(nn.Module):
     self.input_layernorm = RMSNorm(hidden_size=self.config.hidden_size)
     self.post_attention_layernorm = RMSNorm(hidden_size=self.config.hidden_size)
 
-  # To test no remat, remove the decorator.
-  # To test remat with the recompute policy, use
-  # @nn.remat
   # The following specifies remat with host offloading.
-  @partial(nn.remat, policy=offload_all)
-  def __call__(self, hidden_states):
+  @partial(nn.remat, policy=offload_all)  # type: ignore
+  def __call__(self, hidden_states, _):
+    # '_' is ignored (needed for scanning)
     residual = hidden_states
     hidden_states = self.input_layernorm(hidden_states)
 
@@ -190,28 +196,48 @@ class DecoderLayer(nn.Module):
     hidden_states = self.mlp(hidden_states)
     hidden_states = residual + hidden_states
 
-    return hidden_states
+    return hidden_states, None  # Return None for the scan carry
 
 
 class DecoderOnlyModel(nn.Module):
   config: DecoderOnlyConfig
+  use_scan: bool = False  # Flag to control scanning
 
   def setup(self):
     self.embed_tokens = nn.Embed(
         num_embeddings=self.config.vocab_size, features=self.config.hidden_size)
-    self.layers = [
-        DecoderLayer(config=self.config)
-        for _ in range(self.config.num_hidden_layers)
-    ]
+
+    if self.use_scan:
+      # Wrap DecoderLayer with nn.scan
+      self.layers = nn.scan(
+          DecoderLayer,
+          variable_axes={'params': 0},
+          split_rngs={'params': True},
+          length=self.config.num_hidden_layers,
+      )(
+          config=self.config)
+    else:
+      self.layers = [
+          DecoderLayer(config=self.config)
+          for _ in range(self.config.num_hidden_layers)
+      ]
     self.norm = RMSNorm(hidden_size=self.config.hidden_size)
     self.output = nn.Dense(self.config.vocab_size, use_bias=False)
 
   def __call__(self, input_ids):
     hidden_states = self.embed_tokens(input_ids)  # [B, S, H]
 
-    # Pass through decoder layers
-    for layer in self.layers:
-      hidden_states = layer(hidden_states)
+    if self.use_scan:
+      print("Use scan")
+      assert isinstance(self.layers, DecoderLayer)
+      xs = [None] * self.config.num_hidden_layers  # xs is a list of None
+      hidden_states, _ = self.layers(hidden_states, xs)
+    else:
+      # Pass through decoder layers
+      print("Use for loop")
+      assert isinstance(self.layers, list)
+      for layer in self.layers:
+        hidden_states, _ = layer(hidden_states, None)
 
     hidden_states = self.norm(hidden_states)
     logits = self.output(hidden_states)  # [B, S, V]
@@ -246,7 +272,8 @@ def compute_loss(params, apply_fn, input_ids):
 @jax.jit
 def train_step(state, input_ids):
   # Loss function with only the params being differentiable
-  loss_fn = lambda params: compute_loss(params, state.apply_fn, input_ids)
+  def loss_fn(params):
+    return compute_loss(params, state.apply_fn, input_ids)
 
   # Compute the loss and its gradient with respect to parameters
   loss, grads = jax.value_and_grad(loss_fn)(state.params)
@@ -273,15 +300,24 @@ def setup_tensorboard_profiler(logdir):
 
 
 def main():
+  # Parse command-line arguments
+  parser = argparse.ArgumentParser()
+  parser.add_argument(
+      '--scan', action='store_true', help='Use scan in the decoder layers')
+  args = parser.parse_args()
+
   config = DecoderOnlyConfig(
       hidden_size=1024,
       num_hidden_layers=20,
       intermediate_size=4096,
       vocab_size=8192)
 
+  global global_offload
+  global_offload = False  # Disable offloading during initialization
+
   # Initialize model
   rng = jax.random.PRNGKey(0)
-  model = DecoderOnlyModel(config=config)
+  model = DecoderOnlyModel(config=config, use_scan=args.scan)
   state = create_train_state(rng, model, config)
 
   # Define training parameters
@@ -289,14 +325,19 @@ def main():
   sequence_length = 512
 
   # Generate random input_ids
+  input_rng = jax.random.PRNGKey(1)
   input_ids = jax.random.randint(
-      rng, (batch_size, sequence_length), 0, config.vocab_size, dtype=jnp.int32)
+      input_rng, (batch_size, sequence_length),
+      0,
+      config.vocab_size,
+      dtype=jnp.int32)
 
   # Initialize TensorBoard writer for profiling
   logdir = "profile/"
   writer = setup_tensorboard_profiler(logdir)
 
   # Compile the model by running a few training steps
+  global_offload = True  # Enable offloading during training
   print("Compiling model...")
   for _ in range(10):
     state, loss = train_step(state, input_ids)
