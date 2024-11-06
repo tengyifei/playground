@@ -30,7 +30,12 @@ server = xp.start_server(9012)
 # _xla_buffer_placement can only be specified on annotate_device_placement calls,
 # despite the fact that we only use that attribute on annotate_device_placement calls.
 # model = offload(model)
-model.layers_sequential = offload(model.layers_sequential)
+# model.layers_sequential = offload(model.layers_sequential)
+
+# Offload each layer.
+for i, block in enumerate(model.layers):
+  model.layers[i] = offload(block)
+model.layers_sequential = torch.nn.Sequential(*model.layers)
 
 print("Compiling model")
 for i in range(10):
@@ -58,5 +63,6 @@ torch_xla.sync(wait=True)
 
 print("Done!")
 
+print("XLA flags used:")
 import os
 print(os.getenv("LIBTPU_INIT_ARGS"))
