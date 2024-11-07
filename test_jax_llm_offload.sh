@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Dependencies:
-# pip install jax optax flax 'jax[tpu]' -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+# pip install jax optax flax 'jax[tpu]' tensorboardX tensorflow-cpu tensorboard-plugin-profile -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
 
 # Initialize an associative array to store exit codes
 declare -A exit_codes
@@ -43,6 +43,20 @@ run_and_store 'offload-40-low-mem' python3 test_jax_llm_offload.py --name 'offlo
 
 run_and_store 'scan-offload-30-low-mem' python3 test_jax_llm_offload.py --name 'scan-offload-30-low-mem' --num-layers 30 --offload --scan
 run_and_store 'scan-offload-40-low-mem' python3 test_jax_llm_offload.py --name 'scan-offload-40-low-mem' --num-layers 40 --offload --scan
+
+# Update LIBTPU_INIT_ARGS for even lower memory settings, and activate barrier.
+export LIBTPU_INIT_ARGS='--xla_tpu_aggressive_opt_barrier_removal=DISABLED --xla_max_concurrent_host_copy=1 xla_latency_hiding_scheduler_rerun=0 --xla_jf_rematerialization_percent_shared_memory_limit=50'
+
+# Run the second set of Python commands with low memory settings
+run_and_store 'vanilla-30-lowest-mem' python3 test_jax_llm_offload.py --name 'vanilla-30-lowest-mem' --num-layers 30
+run_and_store 'vanilla-40-lowest-mem' python3 test_jax_llm_offload.py --name 'vanilla-40-lowest-mem' --num-layers 40
+
+run_and_store 'offload-30-lowest-mem' python3 test_jax_llm_offload.py --name 'offload-30-lowest-mem' --num-layers 30 --offload
+run_and_store 'offload-40-lowest-mem' python3 test_jax_llm_offload.py --name 'offload-40-lowest-mem' --num-layers 40 --offload
+
+run_and_store 'scan-offload-30-lowest-mem' python3 test_jax_llm_offload.py --name 'scan-offload-30-lowest-mem' --num-layers 30 --offload --scan
+run_and_store 'scan-offload-40-lowest-mem' python3 test_jax_llm_offload.py --name 'scan-offload-40-lowest-mem' --num-layers 40 --offload --scan
+
 
 # After all commands have run, print the exit codes
 echo -e "\nSummary of Exit Codes:"
