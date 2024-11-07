@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Dependencies:
+# pip install jax optax flax 'jax[tpu]' -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+
 # Initialize an associative array to store exit codes
 declare -A exit_codes
 
