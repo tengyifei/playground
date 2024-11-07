@@ -3,6 +3,7 @@
 /logs/
 /results/
 /profile/
+/xla_dumps/
 
 
 # Byte-compiled / optimized / DLL files

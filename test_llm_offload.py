@@ -6,7 +6,7 @@ import torch
 
 print("Building model")
 device = torch_xla.device()
-config = DecoderOnlyConfig(hidden_size=1024, num_hidden_layers=30)
+config = DecoderOnlyConfig(hidden_size=1024, num_hidden_layers=40)
 config.intermediate_size = 4096
 config.vocab_size = 8192
 model = DecoderOnlyModel(config=config).to(device)
@@ -33,9 +33,9 @@ server = xp.start_server(9012)
 # model.layers_sequential = offload(model.layers_sequential)
 
 # Offload each layer.
-for i, block in enumerate(model.layers):
-  model.layers[i] = offload(block)
-model.layers_sequential = torch.nn.Sequential(*model.layers)
+# for i, block in enumerate(model.layers):
+#   model.layers[i] = offload(block)
+# model.layers_sequential = torch.nn.Sequential(*model.layers)
 
 print("Compiling model")
 for i in range(10):

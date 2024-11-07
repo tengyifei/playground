@@ -18,7 +18,7 @@ echo "Running test"
 python3 -m unittest "$@"
 echo "=========== DONE ==========="
 
-while inotifywait -e modify,create "$MONITOR_DIR" ; do
+while inotifywait -r -e modify,create "$MONITOR_DIR" ; do
   echo "Running test"
   python3 -m unittest "$@"
   echo "=========== DONE ==========="

@@ -235,7 +235,7 @@ class DecoderOnlyModel(nn.Module):
     else:
       # Pass through decoder layers
       print("Use for loop")
-      assert isinstance(self.layers, list)
+      assert not isinstance(self.layers, DecoderLayer)
       for layer in self.layers:
         hidden_states, _ = layer(hidden_states, None)
 
@@ -304,11 +304,22 @@ def main():
   parser = argparse.ArgumentParser()
   parser.add_argument(
       '--scan', action='store_true', help='Use scan in the decoder layers')
+  parser.add_argument(
+      '--num-layers', type=int, default=30, help='Number of decoder layers')
+  parser.add_argument('--offload', action='store_true', help="Use offload")
+  parser.add_argument('--name', type=str, required=True, help='Name of the run')
   args = parser.parse_args()
+  name = args.name
+
+  print("=================================================")
+  print()
+  print(f"Testing {name}")
+  print()
+  print("=================================================")
 
   config = DecoderOnlyConfig(
       hidden_size=1024,
-      num_hidden_layers=20,
+      num_hidden_layers=args.num_layers,
       intermediate_size=4096,
       vocab_size=8192)
 
@@ -333,19 +344,19 @@ def main():
       dtype=jnp.int32)
 
   # Initialize TensorBoard writer for profiling
-  logdir = "profile/"
+  logdir = f"profile/{name}"
   writer = setup_tensorboard_profiler(logdir)
 
   # Compile the model by running a few training steps
-  global_offload = True  # Enable offloading during training
+  global_offload = args.offload  # Enable offloading during training
   print("Compiling model...")
-  for _ in range(10):
+  for _ in range(3):
     state, loss = train_step(state, input_ids)
   print("Compilation done.")
 
   # Start profiling
   print("Starting profiling...")
-  jax.profiler.start_trace("profile/")
+  jax.profiler.start_trace(f"profile/{name}")
   for step in range(10):
     state, loss = train_step(state, input_ids)
     writer.add_scalar('loss', float(loss), step)
