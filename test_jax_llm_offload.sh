@@ -9,12 +9,15 @@ declare -A exit_codes
 # Function to run a command and store its exit code
 run_and_store() {
     mkdir -p logs
+    mkdir -p "xla_dumps/${name}"
     local name="$1"
     shift
+    export XLA_FLAGS="--xla_dump_to=xla_dumps/${name}"
     echo "Running: $@"
     "$@" >> "logs/${name}.log" 2>&1
     local exit_code=$?
     exit_codes["$name"]=$exit_code
+    export XLA_FLAGS=""
     echo "Completed: $name with exit code $exit_code"
 }
 
