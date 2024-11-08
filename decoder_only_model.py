@@ -3,7 +3,6 @@
 It has a forward_scan that uses scan.
 """
 
-from apply_layers import loopy_apply_layers
 from torch_xla.experimental.apply_layers import apply_layers
 
 from dataclasses import dataclass
@@ -242,20 +241,6 @@ class DecoderOnlyModel(nn.Module):
     hidden_states = inputs_embeds
     # decoder layers
     hidden_states = apply_layers(self.layers, hidden_states)
-    hidden_states = self.norm(hidden_states)
-    # [B, S, H] -> [B, S, V]
-    return self.output(hidden_states)
-
-  def forward_loopy_scan(
-      self,
-      input_ids: torch.Tensor,
-  ) -> torch.Tensor:
-    inputs_embeds = self.embed_tokens(input_ids)
-    # embed positions
-    assert isinstance(inputs_embeds, torch.Tensor)
-    hidden_states = inputs_embeds
-    # decoder layers
-    hidden_states = loopy_apply_layers(self.layers, hidden_states)
     hidden_states = self.norm(hidden_states)
     # [B, S, H] -> [B, S, V]
     return self.output(hidden_states)
