@@ -3,10 +3,10 @@
 It has a forward_scan that uses scan.
 """
 
-from apply_layers import apply_layers, loopy_apply_layers
+from apply_layers import loopy_apply_layers
+from torch_xla.experimental.apply_layers import apply_layers
 
 from dataclasses import dataclass
-from typing import Optional
 import math
 
 import torch
