@@ -1,8 +1,9 @@
 """The decoder model taken from https://github.com/pytorch/xla/blob/master/examples/decoder_only_model.py
 
-It has a forward_scan that uses scan.
+Adapted to support scan.
 """
 
+import torch_xla.debug.profiler as xp
 from torch_xla.experimental.apply_layers import apply_layers
 
 from dataclasses import dataclass
@@ -20,9 +21,9 @@ class DecoderOnlyConfig:
   num_hidden_layers: int = 5
   num_attention_heads: int = 8
   num_key_value_heads: int = 4
-  intermediate_size = 32 * 256
-  vocab_size = 3200
-  use_flash_attention = False
+  intermediate_size: int = 32 * 256
+  vocab_size: int = 3200
+  use_flash_attention: bool = False
 
 
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
@@ -50,6 +51,7 @@ class RMSNorm(nn.Module):
     self.weight = nn.Parameter(torch.ones(hidden_size))
     self.variance_epsilon = eps
 
+  @xp.trace_me("RMSNorm")
   def forward(self, hidden_states):
     input_dtype = hidden_states.dtype
     hidden_states = hidden_states.to(torch.float32)
@@ -85,6 +87,7 @@ class GroupQueryAttention(nn.Module):
         self.num_heads * self.head_dim, self.hidden_size, bias=False)
     self.flash_attention_impl = None
 
+  @xp.trace_me("GroupQueryAttention")
   def forward(
       self,
       hidden_states: torch.Tensor,
@@ -159,6 +162,7 @@ class MLP(nn.Module):
         self.intermediate_size, self.hidden_size, bias=False)
     self.act_fn = F.silu
 
+  @xp.trace_me("MLP")
   def forward(self, x):
     # [B, S, H] -> [B, S, I]
     up_proj = self.up_proj(x)
@@ -179,6 +183,7 @@ class DecoderLayer(nn.Module):
     self.input_layernorm = RMSNorm(config.hidden_size)
     self.post_attention_layernorm = RMSNorm(config.hidden_size)
 
+  @xp.trace_me("DecoderLayer")
   def forward(
       self,
       hidden_states: torch.Tensor,
@@ -213,8 +218,12 @@ class DecoderOnlyModel(nn.Module):
         [DecoderLayer(config) for _ in range(config.num_hidden_layers)])
     self.norm = RMSNorm(config.hidden_size)
     self.output = nn.Linear(config.hidden_size, self.vocab_size, bias=False)
-    self.layers_sequential: nn.Module = nn.Sequential(*self.layers)
+    self.use_scan = False
 
+  def use_scan_(self, use_scan: bool):
+    self.use_scan = use_scan
+
+  @xp.trace_me("DecoderOnlyModel")
   def forward(
       self,
       input_ids: torch.Tensor,
@@ -225,22 +234,12 @@ class DecoderOnlyModel(nn.Module):
     hidden_states = inputs_embeds
 
     # decoder layers
-    hidden_states = self.layers_sequential(hidden_states)
+    if self.use_scan:
+      hidden_states = apply_layers(self.layers, hidden_states)
+    else:
+      for layer in self.layers:
+        hidden_states = layer(hidden_states)
 
-    hidden_states = self.norm(hidden_states)
-    # [B, S, H] -> [B, S, V]
-    return self.output(hidden_states)
-
-  def forward_scan(
-      self,
-      input_ids: torch.Tensor,
-  ) -> torch.Tensor:
-    inputs_embeds = self.embed_tokens(input_ids)
-    # embed positions
-    assert isinstance(inputs_embeds, torch.Tensor)
-    hidden_states = inputs_embeds
-    # decoder layers
-    hidden_states = apply_layers(self.layers, hidden_states)
     hidden_states = self.norm(hidden_states)
     # [B, S, H] -> [B, S, V]
     return self.output(hidden_states)
