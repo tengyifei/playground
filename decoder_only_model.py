@@ -217,7 +217,7 @@ class DecoderOnlyModel(nn.Module):
     self.layers = nn.ModuleList(
         [DecoderLayer(config) for _ in range(config.num_hidden_layers)])
     self.norm = RMSNorm(config.hidden_size)
-    self.output = nn.Linear(config.hidden_size, self.vocab_size, bias=False)
+    self.lm_head = nn.Linear(config.hidden_size, self.vocab_size, bias=False)
     self.use_scan = False
 
   def use_scan_(self, use_scan: bool):
@@ -242,4 +242,4 @@ class DecoderOnlyModel(nn.Module):
 
     hidden_states = self.norm(hidden_states)
     # [B, S, H] -> [B, S, V]
-    return self.output(hidden_states)
+    return self.lm_head(hidden_states)
