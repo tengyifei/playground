@@ -71,7 +71,7 @@ class TrainDecoderOnlyBase():
     self.model.train()
     loader = itertools.islice(loader, self.num_steps)
     for step, (data, target) in enumerate(loader):
-      loss = self.compiled_step_fn(data, target)
+      loss = self.compiled_step_fn(data, target)  # type: ignore
       tracker.add(self.batch_size)
       if step % self.log_step == 0:
         xm.add_step_closure(
