@@ -23,10 +23,6 @@ input_ids = torch.randint(
     0, config.vocab_size, (batch_size, sequence_length), device=device)
 torch_xla.sync(wait=True)
 
-import time
-import torch_xla.debug.profiler as xp
-server = xp.start_server(9012)
-
 
 class OffloadedModule(nn.Module):
 
@@ -71,11 +67,12 @@ class OffloadedModule(nn.Module):
 
 # Wrap each decoder in an offload, then use scan to run the layers.
 model.layers = nn.ModuleList([OffloadedModule(layer) for layer in model.layers])
+model.use_scan_(True)
 
 print("Compiling model")
-for i in range(10):
+for i in range(3):
   model.zero_grad()
-  output = model.forward_scan(input_ids.clone())
+  output = model(input_ids.clone())
   output.sum().backward()
   torch_xla.sync()
 torch_xla.sync(wait=True)
@@ -84,12 +81,15 @@ torch_xla.sync(wait=True)
 
 # Start profiling
 print("Profiling model")
+import time
+import torch_xla.debug.profiler as xp
+server = xp.start_server(9012)
 xp.trace_detached(
     service_addr="localhost:9012", logdir="profile/", duration_ms=60000)
 time.sleep(1)
 for i in range(10):
   model.zero_grad()
-  output = model.forward_scan(input_ids.clone())
+  output = model(input_ids.clone())
   output.sum().backward()
   torch_xla.sync()
 torch_xla.sync(wait=True)
