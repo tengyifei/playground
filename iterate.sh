@@ -15,12 +15,12 @@ if ! command -v inotifywait &> /dev/null; then
 fi
 
 echo "Running test"
-python3 -m unittest "$@"
+python3 -m unittest "$@" || :
 echo "=========== DONE ==========="
 
 while inotifywait -r -e modify,create "$MONITOR_DIR" ; do
   echo "Running test"
-  python3 -m unittest "$@"
+  python3 -m unittest "$@" || :
   echo "=========== DONE ==========="
 done
 
