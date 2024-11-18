@@ -3,6 +3,7 @@
 Adapted to support scan.
 """
 
+from typing import Tuple
 import torch_xla.debug.profiler as xp
 from torch_xla.experimental.apply_layers import apply_layers
 
@@ -11,7 +12,9 @@ import math
 
 import torch
 import torch.nn.functional as F
+import torch.fx as fx
 from torch import nn
+from functorch.compile import min_cut_rematerialization_partition
 
 
 # the default config is intentionally kept low to make it runable on a sigle tpu v2-8 core.
@@ -235,7 +238,8 @@ class DecoderOnlyModel(nn.Module):
 
     # decoder layers
     if self.use_scan:
-      hidden_states = apply_layers(self.layers, hidden_states)
+      hidden_states = apply_layers(
+          self.layers, hidden_states, partition_fn=custom_partition_fn)
     else:
       for layer in self.layers:
         hidden_states = layer(hidden_states)
@@ -243,3 +247,14 @@ class DecoderOnlyModel(nn.Module):
     hidden_states = self.norm(hidden_states)
     # [B, S, H] -> [B, S, V]
     return self.lm_head(hidden_states)
+
+
+def custom_partition_fn(
+    joint_module: fx.GraphModule, _joint_inputs, *,
+    num_fwd_outputs) -> Tuple[fx.GraphModule, fx.GraphModule]:
+  print("Partitioning graph")
+  fwd, bwd = min_cut_rematerialization_partition(
+      joint_module, _joint_inputs, num_fwd_outputs=num_fwd_outputs)
+  # TODO: ensure we remat all and only save decoder inputs.
+  # TODO: offload the decoder inputs.
+  return fwd, bwd

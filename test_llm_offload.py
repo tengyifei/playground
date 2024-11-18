@@ -1,5 +1,16 @@
+"""
+Suggested XLA flags:
+
+export LIBTPU_INIT_ARGS="--xla_enable_async_all_gather=true --xla_tpu_enable_async_collective_fusion=true --xla_tpu_enable_async_collective_fusion_fuse_all_gather=true --xla_tpu_enable_async_collective_fusion_multiple_steps=true --xla_tpu_decompose_all_gather_einsum=true --xla_tpu_decompose_einsum_reduce_scatter=true --xla_tpu_scoped_vmem_limit_kib=98304 --xla_tpu_spmd_rng_bit_generator_unsafe=true --xla_tpu_overlap_compute_collective_tc=true --xla_tpu_use_enhanced_launch_barrier=true --xla_tpu_enable_all_experimental_scheduler_features=true --xla_tpu_enable_scheduler_memory_pressure_tracking=true --xla_tpu_host_transfer_overlap_limit=2 --xla_tpu_aggressive_opt_barrier_removal=ENABLED --xla_lhs_prioritize_async_depth_over_stall=ENABLED --xla_tpu_enable_ag_backward_pipelining=true --xla_should_allow_loop_variant_parameter_in_chain=ENABLED --xla_should_add_loop_invariant_op_in_chain=ENABLED --xla_max_concurrent_host_send_recv=100 --xla_tpu_scheduler_percent_shared_memory_limit=100 --xla_latency_hiding_scheduler_rerun=2"
+
+Suggested LIBTPU: After Nov 12
+
+export TPU_LIBRARY_PATH=/workspaces/torch/_libtpu.so
+
+"""
 from decoder_only_model import DecoderOnlyConfig, DecoderOnlyModel
 
+import os
 import torch_xla
 import torch
 import torch_xla.distributed.spmd as xs
@@ -9,150 +20,99 @@ from torch_xla import runtime as xr
 from itertools import chain
 from tqdm import tqdm
 
-# Sharding
-num_devices = xr.global_runtime_device_count()
-tensor_axis = 4
-fsdp_axis = num_devices // tensor_axis
-mesh_shape = (fsdp_axis, tensor_axis)
-print(f"Single-slice sharding: mesh={mesh_shape}")
-spmd_mesh = xs.Mesh(list(range(num_devices)), mesh_shape, ('fsdp', 'tensor'))
-xs.set_global_mesh(spmd_mesh)
-xr.use_spmd()
 
-print("Building model")
-device = torch_xla.device()
-config = DecoderOnlyConfig(hidden_size=1024, num_hidden_layers=120)
-config.intermediate_size = 4096
-config.vocab_size = 8192
-model = DecoderOnlyModel(config=config).to(device)
-batch_size = 16
-sequence_length = 512
+def main(num_layers: int, profile_name: str):
+  # Sharding
+  num_devices = xr.global_runtime_device_count()
+  tensor_axis = 4
+  fsdp_axis = num_devices // tensor_axis
+  mesh_shape = (fsdp_axis, tensor_axis)
+  print(f"Single-slice sharding: mesh={mesh_shape}")
+  spmd_mesh = xs.Mesh(list(range(num_devices)), mesh_shape, ('fsdp', 'tensor'))
+  xs.set_global_mesh(spmd_mesh)
+  xr.use_spmd()
 
-model.use_scan_(True)
+  print("Building model")
+  device = torch_xla.device()
+  config = DecoderOnlyConfig(hidden_size=1024, num_hidden_layers=num_layers)
+  config.intermediate_size = 4096
+  config.vocab_size = 8192
+  model = DecoderOnlyModel(config=config).to(device)
+  batch_size = 16
+  sequence_length = 512
 
-# Mark model weights to be sharded
-for name, param in chain(model.named_parameters(), model.named_buffers()):
-  print('> [2D] Sharding tensor', name, param.shape)
+  model.use_scan_(True)
 
-  # Here we intentionally skip layernorm and moe.gate weights given they are small.
-  if 'embed_tokens' in name:
-    xs.mark_sharding(param, spmd_mesh, ('fsdp', 'tensor'))
-  elif 'q_proj' in name or 'k_proj' in name or 'v_proj' in name:
-    xs.mark_sharding(param, spmd_mesh, ('tensor', 'fsdp'))
-  elif 'o_proj' in name:
-    xs.mark_sharding(param, spmd_mesh, ('fsdp', 'tensor'))
-  elif 'gate_proj' in name or 'up_proj' in name:
-    xs.mark_sharding(param, spmd_mesh, ('tensor', 'fsdp'))
-  elif 'down_proj' in name:
-    xs.mark_sharding(param, spmd_mesh, ('fsdp', 'tensor'))
-  elif 'lm_head' in name:
-    xs.mark_sharding(param, spmd_mesh, (('tensor', 'fsdp'), None))
+  # Mark model weights to be sharded
+  for name, param in chain(model.named_parameters(), model.named_buffers()):
+    print('> [2D] Sharding tensor', name, param.shape)
 
-  print(f'{name} {torch_xla._XLAC._get_xla_sharding_spec(param)}')
+    # Here we intentionally skip layernorm and moe.gate weights given they are small.
+    if 'embed_tokens' in name:
+      xs.mark_sharding(param, spmd_mesh, ('fsdp', 'tensor'))
+    elif 'q_proj' in name or 'k_proj' in name or 'v_proj' in name:
+      xs.mark_sharding(param, spmd_mesh, ('tensor', 'fsdp'))
+    elif 'o_proj' in name:
+      xs.mark_sharding(param, spmd_mesh, ('fsdp', 'tensor'))
+    elif 'gate_proj' in name or 'up_proj' in name:
+      xs.mark_sharding(param, spmd_mesh, ('tensor', 'fsdp'))
+    elif 'down_proj' in name:
+      xs.mark_sharding(param, spmd_mesh, ('fsdp', 'tensor'))
+    elif 'lm_head' in name:
+      xs.mark_sharding(param, spmd_mesh, (('tensor', 'fsdp'), None))
 
-# Checkpointing
-torch.xla = torch_xla.device()  # type:ignore
+    print(f'{name} {torch_xla._XLAC._get_xla_sharding_spec(param)}')
 
-from types import MethodType
-import torch.utils.checkpoint
+  # Generate random input_ids within the range of the vocabulary size
+  input_ids = torch.randint(
+      0, config.vocab_size, (batch_size, sequence_length), device=device)
+  optimizer = torch.optim.SGD(model.parameters(), lr=0.00001)
+  torch_xla.sync(wait=True)
 
+  def step_fn():
+    optimizer.zero_grad()
+    output = model(input_ids.clone())
+    output.sum().backward()
+    optimizer.step()
 
-def checkpoint_module(module):
-  """
-  Wrap a `module`'s `forward` method with gradient checkpointing (also called
-  activation checkpointing) via `torch.utils.checkpoint.checkpoint`.
-  """
+  compiled_step_fn = torch_xla.compile(
+      step_fn, full_graph=True, name="train_step_fn")
 
-  def _xla_checkpointed_forward_no_kwargs(m, num_args, num_kwargs,
-                                          *packed_args):
-    # unpack packed_args into args and kwargs
-    assert num_args + num_kwargs * 2 == len(packed_args)
-    args = packed_args[:num_args]
-    kwargs = packed_args[num_args:]
-    kwargs = dict(zip(kwargs[:num_kwargs], kwargs[num_kwargs:]))
-    return m._xla_checkpointed_forward_original(*args, **kwargs)
+  print("Compiling model")
+  for i in range(2):
+    compiled_step_fn()  # type:ignore
+  torch_xla.sync(wait=True)
 
-  def _forward_with_checkpoint(m, *args, **kwargs):
-    # pack args and kwargs together as `torch_xla.utils.checkpoint.checkpoint`
-    # doesn't support keyword arguments
-    packed_args = args + tuple(kwargs.keys()) + tuple(kwargs.values())
-    input_requires_grad = any(
-        isinstance(t, torch.Tensor) and t.requires_grad for t in packed_args)
-    if input_requires_grad:
-      outputs = torch.utils.checkpoint.checkpoint(
-          m._xla_checkpointed_forward_no_kwargs,
-          len(args),
-          len(kwargs),
-          *packed_args,
-          use_reentrant=False)
-    else:
-      # No input requires gradients so we won't checkpoint this forward pass.
-      # Note that `m`` might have parameters that require gradients, but they
-      # are beyond what `torch_xla.utils.checkpoint.checkpoint` can handle.
-      outputs = m._xla_checkpointed_forward_original(*args, **kwargs)
-    return outputs
+  model.zero_grad()
+  torch_xla.sync(wait=True)
 
-  assert isinstance(module, torch.nn.Module)
-  # replace `module`'s forward method with its checkpointed version
-  module._xla_checkpointed_forward_original = module.forward  # type:ignore
-  module._xla_checkpointed_forward_no_kwargs = MethodType(  # type:ignore
-      _xla_checkpointed_forward_no_kwargs, module)
-  module.forward = MethodType(_forward_with_checkpoint, module)
-  return module
+  # Start profiling
+  print("Profiling model")
+  logdir = f"profile/{profile_name}/"
+  print(f"Log directory: {logdir}")
+  os.makedirs(logdir, exist_ok=True)
+  import torch_xla.debug.profiler as xp
+  server = xp.start_server(9017)
+  xp.trace_detached(
+      service_addr="localhost:9017", logdir=logdir, duration_ms=10000)
+  for i in tqdm(range(10)):
+    compiled_step_fn()  # type:ignore
+  torch_xla.sync(wait=True)
+  del server
+
+  print("Done!")
+
+  print("XLA flags used:")
+  print(os.getenv("LIBTPU_INIT_ARGS"))
 
 
-for i, block in enumerate(model.layers):
-  model.layers[i] = checkpoint_module(block)
-
-# Generate random input_ids within the range of the vocabulary size
-input_ids = torch.randint(
-    0, config.vocab_size, (batch_size, sequence_length), device=device)
-optimizer = torch.optim.SGD(model.parameters(), lr=0.00001)
-torch_xla.sync(wait=True)
-
-# Offload the entire model, except the first embedding and the final norm.
-# When the embedding layer is part of the offload wrapper, XLA complains that
-# _xla_buffer_placement can only be specified on annotate_device_placement calls,
-# despite the fact that we only use that attribute on annotate_device_placement calls.
-# model = offload(model)
-# model.layers_sequential = offload(model.layers_sequential)
-
-# Offload each layer.
-# for i, block in enumerate(model.layers):
-#   model.layers[i] = offload(block)
-# model.layers_sequential = torch.nn.Sequential(*model.layers)
-
-
-def step_fn():
-  optimizer.zero_grad()
-  output = model(input_ids.clone())
-  output.sum().backward()
-  optimizer.step()
-
-
-compiled_step_fn = torch_xla.compile(
-    step_fn, full_graph=True, name="train_step_fn")
-
-print("Compiling model")
-for i in range(2):
-  compiled_step_fn()
-torch_xla.sync(wait=True)
-
-model.zero_grad()
-torch_xla.sync(wait=True)
-
-# Start profiling
-print("Profiling model")
-import torch_xla.debug.profiler as xp
-server = xp.start_server(9017)
-xp.trace_detached(
-    service_addr="localhost:9017", logdir="profile/", duration_ms=60000)
-for i in tqdm(range(3)):
-  compiled_step_fn()
-torch_xla.sync(wait=True)
-
-print("Done!")
-
-print("XLA flags used:")
-import os
-print(os.getenv("LIBTPU_INIT_ARGS"))
+if __name__ == "__main__":
+  # Parse command-line arguments
+  import argparse
+  parser = argparse.ArgumentParser()
+  parser.add_argument(
+      '--num-layers', type=int, default=30, help='Number of decoder layers')
+  parser.add_argument('--name', type=str, required=True, help='Name of the run')
+  args = parser.parse_args()
+  name = args.name
+  main(args.num_layers, name)
