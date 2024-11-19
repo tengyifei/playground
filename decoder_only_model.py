@@ -3,7 +3,9 @@
 Adapted to support scan.
 """
 
+from functools import partial
 from typing import Tuple
+from optree import tree_flatten, tree_map
 import torch_xla.debug.profiler as xp
 from torch_xla.experimental.apply_layers import apply_layers
 
@@ -14,7 +16,14 @@ import torch
 import torch.nn.functional as F
 import torch.fx as fx
 from torch import nn
-from functorch.compile import min_cut_rematerialization_partition
+from functorch.compile import min_cut_rematerialization_partition, make_boxed_func  # type:ignore
+
+import torch
+import torch.autograd
+from torch.fx.experimental.proxy_tensor import make_fx
+from torch.fx import symbolic_trace
+from functorch.compile import aot_function
+from torch_xla.experimental.stablehlo_custom_call import place_to_host, place_to_device
 
 
 # the default config is intentionally kept low to make it runable on a sigle tpu v2-8 core.
@@ -250,11 +259,112 @@ class DecoderOnlyModel(nn.Module):
 
 
 def custom_partition_fn(
-    joint_module: fx.GraphModule, _joint_inputs, *,
-    num_fwd_outputs) -> Tuple[fx.GraphModule, fx.GraphModule]:
+    joint_module: fx.GraphModule,
+    _joint_inputs,
+    *,
+    num_fwd_outputs,
+):
   print("Partitioning graph")
   fwd, bwd = min_cut_rematerialization_partition(
       joint_module, _joint_inputs, num_fwd_outputs=num_fwd_outputs)
+  # print("Forward")
+  # fwd.graph.print_tabular()
+  print("Backward")
+  bwd.graph.print_tabular()
+
+  print("Joint inputs")
+  print(tree_map(lambda x: x.shape, _joint_inputs))
+
+  with torch.device('meta'):
+    print("Forward graph metadata")
+    fw_example_args = make_arguments(fwd)
+    bw_example_args = make_arguments(bwd)
+
   # TODO: ensure we remat all and only save decoder inputs.
   # TODO: offload the decoder inputs.
-  return fwd, bwd
+  # torch.ops.xla.{place_to_host, place_to_device}
+  with torch.no_grad():
+
+    def forward(**kwargs):
+      out = fwd(**kwargs)
+      return (out[0],) + tuple(
+          torch.ops.xla.place_to_host(v) for v in out[1:])  # type:ignore
+
+    def backward(**kwargs):
+      kwargs = {
+          k: torch.ops.xla.place_to_device(v)  # type: ignore
+          for k, v in kwargs.items()
+      }
+      return bwd(**kwargs)
+
+    # Use AOTAutograd to retrace forwad
+    graph = [None]
+
+    def get_graph(g, _):
+      graph[0] = g
+      print("Got graph: ")
+      print(g.code)
+      return make_boxed_func(g)
+
+    print("AOT tracing the forward")
+    _ = aot_function(forward, fw_compiler=get_graph)(**fw_example_args)
+    aot_forward = graph[0]
+
+    print("AOT tracing the backward")
+    _ = aot_function(backward, fw_compiler=get_graph)(**bw_example_args)
+    aot_backward = graph[0]
+
+    return aot_forward, aot_backward
+
+
+def make_arguments(gm):
+  example_args = {}
+  for node in gm.graph.nodes:
+    if node.op != 'placeholder':
+      continue
+    if 'tensor_meta' in node.meta:
+      tensor_meta = node.meta['tensor_meta']
+      print(f"Node: {node.name}, Shape: {tensor_meta.shape}")
+      tensor = torch.zeros(
+          tensor_meta.shape,
+          dtype=tensor_meta.dtype,
+          requires_grad=tensor_meta.requires_grad)
+      example_args[node.name] = tensor
+  return example_args
+
+
+########## Host offloading ops ###########
+
+
+@torch.library.custom_op("xla::place_to_host", mutates_args=())
+def to_host(t: torch.Tensor) -> torch.Tensor:
+  return place_to_host(t)
+
+
+@to_host.register_fake
+def _(t: torch.Tensor) -> torch.Tensor:
+  return torch.empty_like(t)
+
+
+def to_host_backward(ctx, grad):
+  return grad
+
+
+to_host.register_autograd(to_host_backward)
+
+
+@torch.library.custom_op("xla::place_to_device", mutates_args=())
+def to_device(t: torch.Tensor) -> torch.Tensor:
+  return place_to_device(t)
+
+
+@to_device.register_fake
+def _(t: torch.Tensor) -> torch.Tensor:
+  return torch.empty_like(t)
+
+
+def to_device_backward(ctx, grad):
+  return grad
+
+
+to_device.register_autograd(to_device_backward)
