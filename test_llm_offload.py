@@ -21,7 +21,7 @@ from itertools import chain
 from tqdm import tqdm
 
 
-def main(num_layers: int, profile_name: str, spmd: bool):
+def main(num_layers: int, profile_name: str, spmd: bool, profile: bool):
   if spmd:
     # Sharding
     num_devices = xr.global_runtime_device_count()
@@ -90,18 +90,22 @@ def main(num_layers: int, profile_name: str, spmd: bool):
   torch_xla.sync(wait=True)
 
   # Start profiling
-  print("Profiling model")
-  logdir = f"profile/{profile_name}/"
-  print(f"Log directory: {logdir}")
-  os.makedirs(logdir, exist_ok=True)
-  import torch_xla.debug.profiler as xp
-  server = xp.start_server(9017)
-  xp.trace_detached(
-      service_addr="localhost:9017", logdir=logdir, duration_ms=10000)
-  for i in tqdm(range(10)):
+  if profile:
+    print("Profiling model")
+    logdir = f"profile/{profile_name}/"
+    print(f"Log directory: {logdir}")
+    os.makedirs(logdir, exist_ok=True)
+    import torch_xla.debug.profiler as xp
+    server = xp.start_server(9017)
+    xp.trace_detached(
+        service_addr="localhost:9017", logdir=logdir, duration_ms=10000)
+  else:
+    print("Running model")
+  for i in tqdm(range(4)):
     compiled_step_fn()  # type:ignore
   torch_xla.sync(wait=True)
-  del server
+  if profile:
+    del server
 
   print("Done!")
 
@@ -118,6 +122,8 @@ if __name__ == "__main__":
   parser.add_argument('--name', type=str, required=True, help='Name of the run')
   parser.add_argument(
       '--spmd', action='store_true', required=False, help='Use SPMD')
+  parser.add_argument(
+      '--profile', action='store_true', required=False, help='Profile model')
   args = parser.parse_args()
   name = args.name
-  main(args.num_layers, name, spmd=args.spmd)
+  main(args.num_layers, name, spmd=args.spmd, profile=args.profile)
