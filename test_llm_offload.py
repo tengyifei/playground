@@ -97,7 +97,7 @@ def main(num_layers: int, profile_name: str, spmd: bool):
   import torch_xla.debug.profiler as xp
   server = xp.start_server(9017)
   xp.trace_detached(
-      service_addr="localhost:9017", logdir=logdir, duration_ms=60000)
+      service_addr="localhost:9017", logdir=logdir, duration_ms=10000)
   for i in tqdm(range(10)):
     compiled_step_fn()  # type:ignore
   torch_xla.sync(wait=True)
