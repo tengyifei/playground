@@ -21,16 +21,18 @@ from itertools import chain
 from tqdm import tqdm
 
 
-def main(num_layers: int, profile_name: str):
-  # Sharding
-  num_devices = xr.global_runtime_device_count()
-  tensor_axis = 4
-  fsdp_axis = num_devices // tensor_axis
-  mesh_shape = (fsdp_axis, tensor_axis)
-  print(f"Single-slice sharding: mesh={mesh_shape}")
-  spmd_mesh = xs.Mesh(list(range(num_devices)), mesh_shape, ('fsdp', 'tensor'))
-  xs.set_global_mesh(spmd_mesh)
-  xr.use_spmd()
+def main(num_layers: int, profile_name: str, spmd: bool):
+  if spmd:
+    # Sharding
+    num_devices = xr.global_runtime_device_count()
+    tensor_axis = 4
+    fsdp_axis = num_devices // tensor_axis
+    mesh_shape = (fsdp_axis, tensor_axis)
+    print(f"Single-slice sharding: mesh={mesh_shape}")
+    spmd_mesh = xs.Mesh(
+        list(range(num_devices)), mesh_shape, ('fsdp', 'tensor'))
+    xs.set_global_mesh(spmd_mesh)
+    xr.use_spmd()
 
   print("Building model")
   device = torch_xla.device()
@@ -43,25 +45,26 @@ def main(num_layers: int, profile_name: str):
 
   model.use_scan_(True)
 
-  # Mark model weights to be sharded
-  for name, param in chain(model.named_parameters(), model.named_buffers()):
-    print('> [2D] Sharding tensor', name, param.shape)
+  if spmd:
+    # Mark model weights to be sharded
+    for name, param in chain(model.named_parameters(), model.named_buffers()):
+      print('> [2D] Sharding tensor', name, param.shape)
 
-    # Here we intentionally skip layernorm and moe.gate weights given they are small.
-    if 'embed_tokens' in name:
-      xs.mark_sharding(param, spmd_mesh, ('fsdp', 'tensor'))
-    elif 'q_proj' in name or 'k_proj' in name or 'v_proj' in name:
-      xs.mark_sharding(param, spmd_mesh, ('tensor', 'fsdp'))
-    elif 'o_proj' in name:
-      xs.mark_sharding(param, spmd_mesh, ('fsdp', 'tensor'))
-    elif 'gate_proj' in name or 'up_proj' in name:
-      xs.mark_sharding(param, spmd_mesh, ('tensor', 'fsdp'))
-    elif 'down_proj' in name:
-      xs.mark_sharding(param, spmd_mesh, ('fsdp', 'tensor'))
-    elif 'lm_head' in name:
-      xs.mark_sharding(param, spmd_mesh, (('tensor', 'fsdp'), None))
+      # Here we intentionally skip layernorm and moe.gate weights given they are small.
+      if 'embed_tokens' in name:
+        xs.mark_sharding(param, spmd_mesh, ('fsdp', 'tensor'))
+      elif 'q_proj' in name or 'k_proj' in name or 'v_proj' in name:
+        xs.mark_sharding(param, spmd_mesh, ('tensor', 'fsdp'))
+      elif 'o_proj' in name:
+        xs.mark_sharding(param, spmd_mesh, ('fsdp', 'tensor'))
+      elif 'gate_proj' in name or 'up_proj' in name:
+        xs.mark_sharding(param, spmd_mesh, ('tensor', 'fsdp'))
+      elif 'down_proj' in name:
+        xs.mark_sharding(param, spmd_mesh, ('fsdp', 'tensor'))
+      elif 'lm_head' in name:
+        xs.mark_sharding(param, spmd_mesh, (('tensor', 'fsdp'), None))
 
-    print(f'{name} {torch_xla._XLAC._get_xla_sharding_spec(param)}')
+      print(f'{name} {torch_xla._XLAC._get_xla_sharding_spec(param)}')
 
   # Generate random input_ids within the range of the vocabulary size
   input_ids = torch.randint(
@@ -94,7 +97,7 @@ def main(num_layers: int, profile_name: str):
   import torch_xla.debug.profiler as xp
   server = xp.start_server(9017)
   xp.trace_detached(
-      service_addr="localhost:9017", logdir=logdir, duration_ms=10000)
+      service_addr="localhost:9017", logdir=logdir, duration_ms=60000)
   for i in tqdm(range(10)):
     compiled_step_fn()  # type:ignore
   torch_xla.sync(wait=True)
@@ -113,6 +116,8 @@ if __name__ == "__main__":
   parser.add_argument(
       '--num-layers', type=int, default=30, help='Number of decoder layers')
   parser.add_argument('--name', type=str, required=True, help='Name of the run')
+  parser.add_argument(
+      '--spmd', action='store_true', required=False, help='Use SPMD')
   args = parser.parse_args()
   name = args.name
-  main(args.num_layers, name)
+  main(args.num_layers, name, spmd=args.spmd)
