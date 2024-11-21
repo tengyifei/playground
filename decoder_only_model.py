@@ -7,7 +7,7 @@ from functools import partial
 from typing import Tuple
 from optree import tree_flatten, tree_map
 import torch_xla.debug.profiler as xp
-from torch_xla.experimental.apply_layers import apply_layers
+from torch_xla.experimental.scan_layers import scan_layers
 
 from dataclasses import dataclass
 import math
@@ -247,7 +247,7 @@ class DecoderOnlyModel(nn.Module):
 
     # decoder layers
     if self.use_scan:
-      hidden_states = apply_layers(
+      hidden_states = scan_layers(
           self.layers, hidden_states, partition_fn=custom_partition_fn)
     else:
       for layer in self.layers:

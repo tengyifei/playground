@@ -48,9 +48,9 @@ IR {
   %2 = f32[] prim::Constant(), location=<listcomp>@scan_prototype.py:248, xla_shape=f32[]
   %3 = f32[1,64]{1,0} aten::expand(%2), location=<listcomp>@scan_prototype.py:248, xla_shape=f32[1,64]{1,0}
   %4 = f32[64]{0} xla::device_data(), location=convert@module.py:1326, xla_shape=f32[64]{0}
-  %5 = f32[1,64]{1,0} aten::stack(%4), location=<lambda>@apply_layers.py:32, xla_shape=f32[1,64]{1,0}
+  %5 = f32[1,64]{1,0} aten::stack(%4), location=<lambda>@scan_layers.py:32, xla_shape=f32[1,64]{1,0}
   %6 = f32[64,64]{1,0} xla::device_data(), location=convert@module.py:1326, xla_shape=f32[64,64]{1,0}
-  %7 = f32[1,64,64]{2,1,0} aten::stack(%6), location=<lambda>@apply_layers.py:32, xla_shape=f32[1,64,64]{2,1,0}
+  %7 = f32[1,64,64]{2,1,0} aten::stack(%6), location=<lambda>@scan_layers.py:32, xla_shape=f32[1,64,64]{2,1,0}
   %8 = f32[64]{0} xla::device_data(), location=test_scan_linear_layers@test_scan.py:160, xla_shape=f32[64]{0}
   %9 = s64[] prim::Constant(), location=scan_dense@scan_prototype.py:242, xla_shape=s64[]
   %10 = (s64[], f32[64]{0}, f32[1,64,64]{2,1,0}, f32[1,64]{1,0}, f32[1,64]{1,0}, /*index=5*/f32[1,64]{1,0}) xla::scan(%9, %8, %7, %5, %3, %1), num_outputs=6, location=scan_dense@scan_prototype.py:347, xla_shape=(s64[], f32[64]{0}, f32[1,64,64]{2,1,0}, f32[1,64]{1,0}, f32[1,64]{1,0}, /*index=5*/f32[1,64]{1,0}), ROOT=0
@@ -161,10 +161,10 @@ IR {
   %4 = f32[] prim::Constant(), location=<listcomp>@scan_prototype.py:248, xla_shape=f32[]
   %5 = f32[1,64]{1,0} aten::expand(%4), location=<listcomp>@scan_prototype.py:248, xla_shape=f32[1,64]{1,0}
   %6 = f32[64]{0} xla::device_data(), location=convert@module.py:1326, xla_shape=f32[64]{0}
-  %7 = f32[1,64]{1,0} aten::stack(%6), location=<lambda>@apply_layers.py:32, xla_shape=f32[1,64]{1,0}
+  %7 = f32[1,64]{1,0} aten::stack(%6), location=<lambda>@scan_layers.py:32, xla_shape=f32[1,64]{1,0}
   %8 = f32[1,64]{1,0} aten::flip(%7), location=<lambda>@scan_prototype.py:453, xla_shape=f32[1,64]{1,0}
   %9 = f32[64,64]{1,0} xla::device_data(), location=convert@module.py:1326, xla_shape=f32[64,64]{1,0}
-  %10 = f32[1,64,64]{2,1,0} aten::stack(%9), location=<lambda>@apply_layers.py:32, xla_shape=f32[1,64,64]{2,1,0}
+  %10 = f32[1,64,64]{2,1,0} aten::stack(%9), location=<lambda>@scan_layers.py:32, xla_shape=f32[1,64,64]{2,1,0}
   %11 = f32[1,64,64]{2,1,0} aten::flip(%10), location=<lambda>@scan_prototype.py:453, xla_shape=f32[1,64,64]{2,1,0}
   %12 = f32[] prim::Constant(), location=<listcomp>@scan_prototype.py:244, xla_shape=f32[]
   %13 = f32[1,64]{1,0} aten::expand(%12), location=<listcomp>@scan_prototype.py:244, xla_shape=f32[1,64]{1,0}
@@ -289,10 +289,10 @@ IR {
   %4 = f32[] prim::Constant(), location=<listcomp>@scan_prototype.py:248, xla_shape=f32[]
   %5 = f32[1,64]{1,0} aten::expand(%4), location=<listcomp>@scan_prototype.py:248, xla_shape=f32[1,64]{1,0}
   %6 = f32[64]{0} xla::device_data(), location=convert@module.py:1326, xla_shape=f32[64]{0}
-  %7 = f32[1,64]{1,0} aten::stack(%6), location=<lambda>@apply_layers.py:32, xla_shape=f32[1,64]{1,0}
+  %7 = f32[1,64]{1,0} aten::stack(%6), location=<lambda>@scan_layers.py:32, xla_shape=f32[1,64]{1,0}
   %8 = f32[1,64]{1,0} aten::flip(%7), location=<lambda>@scan_prototype.py:453, xla_shape=f32[1,64]{1,0}
   %9 = f32[64,64]{1,0} xla::device_data(), location=convert@module.py:1326, xla_shape=f32[64,64]{1,0}
-  %10 = f32[1,64,64]{2,1,0} aten::stack(%9), location=<lambda>@apply_layers.py:32, xla_shape=f32[1,64,64]{2,1,0}
+  %10 = f32[1,64,64]{2,1,0} aten::stack(%9), location=<lambda>@scan_layers.py:32, xla_shape=f32[1,64,64]{2,1,0}
   %11 = f32[1,64,64]{2,1,0} aten::flip(%10), location=<lambda>@scan_prototype.py:453, xla_shape=f32[1,64,64]{2,1,0}
   %12 = f32[] prim::Constant(), location=<listcomp>@scan_prototype.py:244, xla_shape=f32[]
   %13 = f32[1,64]{1,0} aten::expand(%12), location=<listcomp>@scan_prototype.py:244, xla_shape=f32[1,64]{1,0}
