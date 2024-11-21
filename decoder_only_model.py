@@ -286,7 +286,7 @@ def custom_partition_fn(
       }
       return bwd(**kwargs)
 
-    # Use AOTAutograd to retrace forwad
+    # Use AOTAutograd to retrace forward
     graph = [None]
 
     def get_graph(g, _):
@@ -327,11 +327,15 @@ def make_arguments(gm):
 
 @torch.library.custom_op("xla::place_to_host", mutates_args=())
 def to_host(t: torch.Tensor) -> torch.Tensor:
+  if t is None:
+    return None
   return place_to_host(t)
 
 
 @to_host.register_fake
 def _(t: torch.Tensor) -> torch.Tensor:
+  if t is None:
+    return None
   return torch.empty_like(t)
 
 
@@ -344,11 +348,15 @@ to_host.register_autograd(to_host_backward)
 
 @torch.library.custom_op("xla::place_to_device", mutates_args=())
 def to_device(t: torch.Tensor) -> torch.Tensor:
+  if t is None:
+    return None
   return place_to_device(t)
 
 
 @to_device.register_fake
 def _(t: torch.Tensor) -> torch.Tensor:
+  if t is None:
+    return None
   return torch.empty_like(t)
 
 
