@@ -21,7 +21,8 @@ from itertools import chain
 from tqdm import tqdm
 
 
-def main(num_layers: int, profile_name: str, spmd: bool, profile: bool):
+def main(num_layers: int, profile_name: str, spmd: bool, offload: bool,
+         profile: bool):
   if spmd:
     # Sharding
     num_devices = xr.global_runtime_device_count()
@@ -43,6 +44,7 @@ def main(num_layers: int, profile_name: str, spmd: bool, profile: bool):
   batch_size = 16
   sequence_length = 512
 
+  model.use_offload_(offload)
   model.use_scan_(True)
 
   if spmd:
@@ -123,7 +125,17 @@ if __name__ == "__main__":
   parser.add_argument(
       '--spmd', action='store_true', required=False, help='Use SPMD')
   parser.add_argument(
+      '--offload',
+      action='store_true',
+      required=False,
+      help='Use host offloading')
+  parser.add_argument(
       '--profile', action='store_true', required=False, help='Profile model')
   args = parser.parse_args()
   name = args.name
-  main(args.num_layers, name, spmd=args.spmd, profile=args.profile)
+  main(
+      args.num_layers,
+      name,
+      spmd=args.spmd,
+      offload=args.offload,
+      profile=args.profile)

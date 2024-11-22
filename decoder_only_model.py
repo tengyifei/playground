@@ -16,7 +16,7 @@ import torch
 import torch.nn.functional as F
 import torch.fx as fx
 from torch import nn
-from functorch.compile import min_cut_rematerialization_partition, make_boxed_func  # type:ignore
+from functorch.compile import min_cut_rematerialization_partition, default_partition, make_boxed_func  # type:ignore
 
 import torch
 import torch.autograd
@@ -231,6 +231,10 @@ class DecoderOnlyModel(nn.Module):
     self.norm = RMSNorm(config.hidden_size)
     self.lm_head = nn.Linear(config.hidden_size, self.vocab_size, bias=False)
     self.use_scan = False
+    self.use_offload = False
+
+  def use_offload_(self, use_offload: bool):
+    self.use_offload = use_offload
 
   def use_scan_(self, use_scan: bool):
     self.use_scan = use_scan
@@ -248,7 +252,10 @@ class DecoderOnlyModel(nn.Module):
     # decoder layers
     if self.use_scan:
       hidden_states = scan_layers(
-          self.layers, hidden_states, partition_fn=custom_partition_fn)
+          self.layers,
+          hidden_states,
+          partition_fn=custom_partition_fn
+          if self.use_offload else default_partition)
     else:
       for layer in self.layers:
         hidden_states = layer(hidden_states)
@@ -271,10 +278,16 @@ def custom_partition_fn(
     bw_example_args = make_arguments(bwd)
 
   # TODO: ensure we remat all and only save decoder inputs.
-  # TODO: offload the decoder inputs.
+  # TODO: offload the decoder inputs once we replicate torch.utils checkpointing.
   with torch.no_grad():
 
     def forward(**kwargs):
+      # TODO: cannot offload model weights. model weights will be permuted/all-gathered.
+      # If model weights is on host, that's not supported. We need to identify which
+      # tensors are model weights and skip offloading them.
+      print("Forward is called by AOTAutograd tracing.")
+      import pdb
+      pdb.set_trace()
       out = fwd(**kwargs)
       return (out[0],) + tuple(
           torch.ops.xla.place_to_host(v) for v in out[1:])  # type:ignore
