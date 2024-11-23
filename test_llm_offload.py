@@ -12,6 +12,7 @@ from decoder_only_model import DecoderOnlyConfig, DecoderOnlyModel
 
 import os
 import torch_xla
+import torch_xla.debug.metrics
 import torch
 import torch_xla.distributed.spmd as xs
 import torch_xla.utils.utils as xu
@@ -103,13 +104,16 @@ def main(num_layers: int, profile_name: str, spmd: bool, offload: bool,
         service_addr="localhost:9017", logdir=logdir, duration_ms=10000)
   else:
     print("Running model")
-  for i in tqdm(range(4)):
+  for i in tqdm(range(10)):
     compiled_step_fn()  # type:ignore
   torch_xla.sync(wait=True)
   if profile:
     del server
 
   print("Done!")
+
+  print("XLA metrics:")
+  print(torch_xla.debug.metrics.metrics_report())
 
   print("XLA flags used:")
   print(os.getenv("LIBTPU_INIT_ARGS"))

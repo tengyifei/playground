@@ -255,7 +255,7 @@ class DecoderOnlyModel(nn.Module):
           self.layers,
           hidden_states,
           partition_fn=custom_partition_fn
-          if self.use_offload else default_partition)
+          if self.use_offload else min_cut_rematerialization_partition)
     else:
       for layer in self.layers:
         hidden_states = layer(hidden_states)

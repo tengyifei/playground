@@ -4,6 +4,7 @@
 /results/
 /profile/
 /xla_dumps/
+/ir_dumps/
 
 
 # Byte-compiled / optimized / DLL files
