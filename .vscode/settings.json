@@ -6,6 +6,9 @@
 		],
 		"editor.formatOnType": true,
 		"editor.formatOnSave": true,
-		"editor.wordBasedSuggestions": "off"
+		"editor.wordBasedSuggestions": "off",
+		"editor.codeActionsOnSave": {
+			"source.organizeImports": "explicit"
+		}
 	},
 }
