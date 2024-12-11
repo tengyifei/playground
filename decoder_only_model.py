@@ -185,6 +185,31 @@ class MLP(nn.Module):
     return down_proj
 
 
+import torch
+import torch_xla
+
+
+@torch.library.custom_op("xla::name_tensor", mutates_args=())
+def name_tensor(t: torch.Tensor, name: str) -> torch.Tensor:
+  if t is None:
+    return None
+  return t.clone()
+
+
+@name_tensor.register_fake
+def _(t: torch.Tensor, name: str) -> torch.Tensor:
+  if t is None:
+    return None
+  return torch.empty_like(t)
+
+
+def name_tensor_backward(ctx, grad):
+  return grad, None
+
+
+name_tensor.register_autograd(name_tensor_backward)
+
+
 class DecoderLayer(nn.Module):
 
   def __init__(self, config: DecoderOnlyConfig):
@@ -200,6 +225,8 @@ class DecoderLayer(nn.Module):
       self,
       hidden_states: torch.Tensor,
   ) -> torch.Tensor:
+    hidden_states = name_tensor(hidden_states, "decoder_input")
+
     residual = hidden_states
 
     hidden_states = self.input_layernorm(hidden_states)
@@ -271,50 +298,44 @@ def custom_partition_fn(
     *,
     num_fwd_outputs,
 ):
-  import torch.fx.traceback as fx_traceback
-  # TODO(b/383376708): we need to replicate regular torch checkpointing here.
+  # Replicate regular torch checkpointing here. The low budget forces the partitioner
+  # to recompute tensors instead of saving them.
+  import torch._functorch.config
+  torch._functorch.config.activation_memory_budget = 0.0
+  torch._functorch.config.aggressive_recomputation = True
+  torch._functorch.config.recompute_views = True
+  torch._functorch.config.ban_recompute_reductions = False
+  torch._functorch.config.ban_recompute_not_in_allowlist = False
+  torch._functorch.config.ban_recompute_materialized_backward = False
+  torch._functorch.config.ban_recompute_long_fusible_chains = False
+  torch._functorch.config.ban_recompute_used_far_apart = False
+
   fwd, bwd = min_cut_rematerialization_partition(
       joint_module, _joint_inputs, num_fwd_outputs=num_fwd_outputs)
   with torch.device('meta'):
     fw_example_args = make_arguments(fwd)
     bw_example_args = make_arguments(bwd)
 
-  # TODO: ensure we remat all and only save decoder inputs. offload the decoder inputs
-  # once we replicate torch.utils checkpointing.
+  fw_name_in_output_indices = get_name_in_output_indices(fwd)
+  bw_name_in_input_names = get_name_in_input_names(bwd)
+
+  assert "decoder_input" in fw_name_in_output_indices
+  assert "decoder_input" in bw_name_in_input_names
+
   with torch.no_grad():
 
     def forward(**kwargs):
-      # TODO(b/380499435): cannot offload model weights. model weights will be
-      # permuted/all-gathered. If model weights is on host, that's not supported.
-      # We need to identify which tensors are model weights and skip offloading them.
-      #
-      # print("Forward is called by AOTAutograd tracing.")
-      # import pdb
-      # pdb.set_trace()
-      # Need to identify which `out` are primals. Those consists of:
-      # - model weights
-      # - decoder inputs
-      # - intermediate activations
-      # Decoder input needs to be offloaded. Don't touch others.
-      #
-      # How do we do it?
-      # We know `init` or `carry` is the decoder input. `xs` is the model weights.
-      # We need to know if some output in `out` is `init` or `carry`.
       out = fwd(**kwargs)
-      return (out[0],) + tuple(
-          torch.ops.xla.place_to_host(v)  # type:ignore
-          if v is not None and v.shape[0] == 16 and v.shape[-1] == 1024 else
-          v  # dirty hack
-          for v in out[1:])
+      decoder_input_index = fw_name_in_output_indices["decoder_input"]
+      return tuple(
+          torch.ops.xla.place_to_host(v) if i ==  # type:ignore
+          decoder_input_index else v for i, v in enumerate(out))
 
     def backward(**kwargs):
-      # import pdb
-      # pdb.set_trace()
+      decoder_input_name = bw_name_in_input_names["decoder_input"]
       kwargs = {
           k: torch.ops.xla.place_to_device(v)  # type: ignore
-          if v is not None and v.shape[0] == 16 and v.shape[-1] == 1024 and
-          ("tangents" not in k) else v  # dirty hack
-          for k, v in kwargs.items()
+          if k == decoder_input_name else v for k, v in kwargs.items()
       }
       return bwd(**kwargs)
 
@@ -323,15 +344,11 @@ def custom_partition_fn(
 
     def get_graph(g, _):
       graph[0] = g
-      # print("Got graph: ")
-      # print(g.code)
       return make_boxed_func(g)
 
-    # print("AOT tracing the forward")
     _ = aot_function(forward, fw_compiler=get_graph)(**fw_example_args)
     aot_forward = graph[0]
 
-    # print("AOT tracing the backward")
     _ = aot_function(backward, fw_compiler=get_graph)(**bw_example_args)
     aot_backward = graph[0]
 
@@ -345,10 +362,49 @@ def make_arguments(gm: fx.GraphModule):
       continue
     if 'tensor_meta' in node.meta:
       tensor_meta = node.meta['tensor_meta']
-      # print(f"Node: {node.name}, Shape: {tensor_meta.shape}")
       tensor = torch.zeros(
           tensor_meta.shape,
           dtype=tensor_meta.dtype,
           requires_grad=tensor_meta.requires_grad)
       example_args[node.name] = tensor
   return example_args
+
+
+def get_named_nodes(gm: torch.fx.GraphModule):
+  named_nodes = {}
+
+  for node in gm.graph.nodes:
+    if node.op == "call_function":
+      if hasattr(node.target, "name"):
+        if node.target.name() == name_tensor._qualname:  # type: ignore
+          named_nodes[node.args[0]] = node.args[1]
+
+  return named_nodes
+
+
+def get_name_in_output_indices(gm: torch.fx.GraphModule):
+  named_nodes = get_named_nodes(gm)
+  name_in_output_indices = {}
+
+  for node in gm.graph.nodes:
+    if node.op == "output":
+      assert len(node.args) <= 1
+      if len(node.args) == 0:
+        continue
+      for i, arg in enumerate(next(iter(node.args))):  # type: ignore
+        if arg in named_nodes:
+          name_in_output_indices[named_nodes[arg]] = i
+
+  return name_in_output_indices
+
+
+def get_name_in_input_names(gm: torch.fx.GraphModule):
+  named_nodes = get_named_nodes(gm)
+  name_in_input_names = {}
+
+  for node in gm.graph.nodes:
+    if node.op == "placeholder":
+      if node in named_nodes:
+        name_in_input_names[named_nodes[node]] = node.target
+
+  return name_in_input_names

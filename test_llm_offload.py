@@ -27,7 +27,7 @@ def main(num_layers: int, profile_name: str, spmd: bool, offload: bool,
   if spmd:
     # Sharding
     num_devices = xr.global_runtime_device_count()
-    tensor_axis = 4
+    tensor_axis = 2
     fsdp_axis = num_devices // tensor_axis
     mesh_shape = (fsdp_axis, tensor_axis)
     print(f"Single-slice sharding: mesh={mesh_shape}")
@@ -44,7 +44,7 @@ def main(num_layers: int, profile_name: str, spmd: bool, offload: bool,
   config.intermediate_size = 4096
   config.vocab_size = 8192
   model = DecoderOnlyModel(config=config).to(device)
-  batch_size = 16
+  batch_size = 32
   sequence_length = 512
 
   model.use_offload_(offload)
