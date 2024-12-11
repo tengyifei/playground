@@ -67,7 +67,7 @@ class RMSNorm(nn.Module):
   def forward(self, hidden_states):
     input_dtype = hidden_states.dtype
     hidden_states = hidden_states.to(torch.float32)
-    variance = hidden_states.pow(2).mean(-1, keepdim=True)
+    variance = hidden_states.sin().pow(2).mean(-1, keepdim=True)
     hidden_states = hidden_states * torch.rsqrt(variance +
                                                 self.variance_epsilon)
     return self.weight * hidden_states.to(input_dtype)
@@ -271,30 +271,49 @@ def custom_partition_fn(
     *,
     num_fwd_outputs,
 ):
+  import torch.fx.traceback as fx_traceback
+  # TODO(b/383376708): we need to replicate regular torch checkpointing here.
   fwd, bwd = min_cut_rematerialization_partition(
       joint_module, _joint_inputs, num_fwd_outputs=num_fwd_outputs)
   with torch.device('meta'):
     fw_example_args = make_arguments(fwd)
     bw_example_args = make_arguments(bwd)
 
-  # TODO: ensure we remat all and only save decoder inputs.
-  # TODO: offload the decoder inputs once we replicate torch.utils checkpointing.
+  # TODO: ensure we remat all and only save decoder inputs. offload the decoder inputs
+  # once we replicate torch.utils checkpointing.
   with torch.no_grad():
 
     def forward(**kwargs):
-      # TODO: cannot offload model weights. model weights will be permuted/all-gathered.
-      # If model weights is on host, that's not supported. We need to identify which
-      # tensors are model weights and skip offloading them.
-      print("Forward is called by AOTAutograd tracing.")
-      import pdb
-      pdb.set_trace()
+      # TODO(b/380499435): cannot offload model weights. model weights will be
+      # permuted/all-gathered. If model weights is on host, that's not supported.
+      # We need to identify which tensors are model weights and skip offloading them.
+      #
+      # print("Forward is called by AOTAutograd tracing.")
+      # import pdb
+      # pdb.set_trace()
+      # Need to identify which `out` are primals. Those consists of:
+      # - model weights
+      # - decoder inputs
+      # - intermediate activations
+      # Decoder input needs to be offloaded. Don't touch others.
+      #
+      # How do we do it?
+      # We know `init` or `carry` is the decoder input. `xs` is the model weights.
+      # We need to know if some output in `out` is `init` or `carry`.
       out = fwd(**kwargs)
       return (out[0],) + tuple(
-          torch.ops.xla.place_to_host(v) for v in out[1:])  # type:ignore
+          torch.ops.xla.place_to_host(v)  # type:ignore
+          if v is not None and v.shape[0] == 16 and v.shape[-1] == 1024 else
+          v  # dirty hack
+          for v in out[1:])
 
     def backward(**kwargs):
+      # import pdb
+      # pdb.set_trace()
       kwargs = {
           k: torch.ops.xla.place_to_device(v)  # type: ignore
+          if v is not None and v.shape[0] == 16 and v.shape[-1] == 1024 and
+          ("tangents" not in k) else v  # dirty hack
           for k, v in kwargs.items()
       }
       return bwd(**kwargs)
@@ -319,7 +338,7 @@ def custom_partition_fn(
     return aot_forward, aot_backward
 
 
-def make_arguments(gm):
+def make_arguments(gm: fx.GraphModule):
   example_args = {}
   for node in gm.graph.nodes:
     if node.op != 'placeholder':
@@ -333,48 +352,3 @@ def make_arguments(gm):
           requires_grad=tensor_meta.requires_grad)
       example_args[node.name] = tensor
   return example_args
-
-
-########## Host offloading ops ###########
-
-
-@torch.library.custom_op("xla::place_to_host", mutates_args=())
-def to_host(t: torch.Tensor) -> torch.Tensor:
-  if t is None:
-    return None
-  return place_to_host(t)
-
-
-@to_host.register_fake
-def _(t: torch.Tensor) -> torch.Tensor:
-  if t is None:
-    return None
-  return torch.empty_like(t)
-
-
-def to_host_backward(ctx, grad):
-  return grad
-
-
-to_host.register_autograd(to_host_backward)
-
-
-@torch.library.custom_op("xla::place_to_device", mutates_args=())
-def to_device(t: torch.Tensor) -> torch.Tensor:
-  if t is None:
-    return None
-  return place_to_device(t)
-
-
-@to_device.register_fake
-def _(t: torch.Tensor) -> torch.Tensor:
-  if t is None:
-    return None
-  return torch.empty_like(t)
-
-
-def to_device_backward(ctx, grad):
-  return grad
-
-
-to_device.register_autograd(to_device_backward)

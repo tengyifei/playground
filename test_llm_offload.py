@@ -35,6 +35,8 @@ def main(num_layers: int, profile_name: str, spmd: bool, offload: bool,
         list(range(num_devices)), mesh_shape, ('fsdp', 'tensor'))
     xs.set_global_mesh(spmd_mesh)
     xr.use_spmd()
+  else:
+    spmd_mesh = None
 
   print("Building model")
   device = torch_xla.device()
@@ -48,7 +50,7 @@ def main(num_layers: int, profile_name: str, spmd: bool, offload: bool,
   model.use_offload_(offload)
   model.use_scan_(True)
 
-  if spmd:
+  if spmd and spmd_mesh:
     # Mark model weights to be sharded
     for name, param in chain(model.named_parameters(), model.named_buffers()):
       print('> [2D] Sharding tensor', name, param.shape)
@@ -72,6 +74,10 @@ def main(num_layers: int, profile_name: str, spmd: bool, offload: bool,
   # Generate random input_ids within the range of the vocabulary size
   input_ids = torch.randint(
       0, config.vocab_size, (batch_size, sequence_length), device=device)
+  # Shard the input data too.
+  if spmd and spmd_mesh:
+    xs.mark_sharding(input_ids, spmd_mesh, ('fsdp', None))
+
   optimizer = torch.optim.SGD(model.parameters(), lr=0.00001)
   torch_xla.sync(wait=True)
 
@@ -93,6 +99,7 @@ def main(num_layers: int, profile_name: str, spmd: bool, offload: bool,
   torch_xla.sync(wait=True)
 
   # Start profiling
+  server = None
   if profile:
     print("Profiling model")
     logdir = f"profile/{profile_name}/"
