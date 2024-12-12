@@ -4,26 +4,18 @@ Adapted to support scan.
 """
 
 from functools import partial
-from typing import Tuple
-from optree import tree_flatten, tree_map
-import torch_xla.debug.profiler as xp
-from torch_xla.experimental.scan_layers import scan_layers
-
 from dataclasses import dataclass
 import math
 
 import torch
-import torch.nn.functional as F
-import torch.fx as fx
-from torch import nn
-from functorch.compile import min_cut_rematerialization_partition, default_partition, make_boxed_func  # type:ignore
-
-import torch
 import torch.autograd
-from torch.fx.experimental.proxy_tensor import make_fx
-from torch.fx import symbolic_trace
-from functorch.compile import aot_function
-from torch_xla.experimental.stablehlo_custom_call import place_to_host, place_to_device
+import torch.nn.functional as F
+from torch import nn
+import torch_xla.debug.profiler as xp
+from torch_xla.experimental.scan_layers import scan_layers
+
+from graph_transforms.offloading import offload_name, remat_all_and_offload_these_inputs
+from graph_transforms.remat_all import remat_all_partition_fn
 
 
 # the default config is intentionally kept low to make it runable on a sigle tpu v2-8 core.
@@ -185,31 +177,6 @@ class MLP(nn.Module):
     return down_proj
 
 
-import torch
-import torch_xla
-
-
-@torch.library.custom_op("xla::name_tensor", mutates_args=())
-def name_tensor(t: torch.Tensor, name: str) -> torch.Tensor:
-  if t is None:
-    return None
-  return t.clone()
-
-
-@name_tensor.register_fake
-def _(t: torch.Tensor, name: str) -> torch.Tensor:
-  if t is None:
-    return None
-  return torch.empty_like(t)
-
-
-def name_tensor_backward(ctx, grad):
-  return grad, None
-
-
-name_tensor.register_autograd(name_tensor_backward)
-
-
 class DecoderLayer(nn.Module):
 
   def __init__(self, config: DecoderOnlyConfig):
@@ -225,7 +192,7 @@ class DecoderLayer(nn.Module):
       self,
       hidden_states: torch.Tensor,
   ) -> torch.Tensor:
-    hidden_states = name_tensor(hidden_states, "decoder_input")
+    hidden_states = offload_name(hidden_states, "decoder_input")
 
     residual = hidden_states
 
@@ -244,9 +211,6 @@ class DecoderLayer(nn.Module):
     return hidden_states
 
 
-# 1. no gradient_checkpointing
-# 2. no padding_idx
-# 3. no kv cache
 class DecoderOnlyModel(nn.Module):
 
   def __init__(self, config: DecoderOnlyConfig):
@@ -281,8 +245,10 @@ class DecoderOnlyModel(nn.Module):
       hidden_states = scan_layers(
           self.layers,
           hidden_states,
-          partition_fn=custom_partition_fn
-          if self.use_offload else min_cut_rematerialization_partition)
+          partition_fn=partial(
+              remat_all_and_offload_these_inputs,
+              names_to_offload=["decoder_input"])
+          if self.use_offload else remat_all_partition_fn)
     else:
       for layer in self.layers:
         hidden_states = layer(hidden_states)
@@ -290,121 +256,3 @@ class DecoderOnlyModel(nn.Module):
     hidden_states = self.norm(hidden_states)
     # [B, S, H] -> [B, S, V]
     return self.lm_head(hidden_states)
-
-
-def custom_partition_fn(
-    joint_module: fx.GraphModule,
-    _joint_inputs,
-    *,
-    num_fwd_outputs,
-):
-  # Replicate regular torch checkpointing here. The low budget forces the partitioner
-  # to recompute tensors instead of saving them.
-  import torch._functorch.config
-  torch._functorch.config.activation_memory_budget = 0.0
-  torch._functorch.config.aggressive_recomputation = True
-  torch._functorch.config.recompute_views = True
-  torch._functorch.config.ban_recompute_reductions = False
-  torch._functorch.config.ban_recompute_not_in_allowlist = False
-  torch._functorch.config.ban_recompute_materialized_backward = False
-  torch._functorch.config.ban_recompute_long_fusible_chains = False
-  torch._functorch.config.ban_recompute_used_far_apart = False
-
-  fwd, bwd = min_cut_rematerialization_partition(
-      joint_module, _joint_inputs, num_fwd_outputs=num_fwd_outputs)
-  with torch.device('meta'):
-    fw_example_args = make_arguments(fwd)
-    bw_example_args = make_arguments(bwd)
-
-  fw_name_in_output_indices = get_name_in_output_indices(fwd)
-  bw_name_in_input_names = get_name_in_input_names(bwd)
-
-  assert "decoder_input" in fw_name_in_output_indices
-  assert "decoder_input" in bw_name_in_input_names
-
-  with torch.no_grad():
-
-    def forward(**kwargs):
-      out = fwd(**kwargs)
-      decoder_input_index = fw_name_in_output_indices["decoder_input"]
-      return tuple(
-          torch.ops.xla.place_to_host(v) if i ==  # type:ignore
-          decoder_input_index else v for i, v in enumerate(out))
-
-    def backward(**kwargs):
-      decoder_input_name = bw_name_in_input_names["decoder_input"]
-      kwargs = {
-          k: torch.ops.xla.place_to_device(v)  # type: ignore
-          if k == decoder_input_name else v for k, v in kwargs.items()
-      }
-      return bwd(**kwargs)
-
-    # Use AOTAutograd to retrace forward
-    graph = [None]
-
-    def get_graph(g, _):
-      graph[0] = g
-      return make_boxed_func(g)
-
-    _ = aot_function(forward, fw_compiler=get_graph)(**fw_example_args)
-    aot_forward = graph[0]
-
-    _ = aot_function(backward, fw_compiler=get_graph)(**bw_example_args)
-    aot_backward = graph[0]
-
-    return aot_forward, aot_backward
-
-
-def make_arguments(gm: fx.GraphModule):
-  example_args = {}
-  for node in gm.graph.nodes:
-    if node.op != 'placeholder':
-      continue
-    if 'tensor_meta' in node.meta:
-      tensor_meta = node.meta['tensor_meta']
-      tensor = torch.zeros(
-          tensor_meta.shape,
-          dtype=tensor_meta.dtype,
-          requires_grad=tensor_meta.requires_grad)
-      example_args[node.name] = tensor
-  return example_args
-
-
-def get_named_nodes(gm: torch.fx.GraphModule):
-  named_nodes = {}
-
-  for node in gm.graph.nodes:
-    if node.op == "call_function":
-      if hasattr(node.target, "name"):
-        if node.target.name() == name_tensor._qualname:  # type: ignore
-          named_nodes[node.args[0]] = node.args[1]
-
-  return named_nodes
-
-
-def get_name_in_output_indices(gm: torch.fx.GraphModule):
-  named_nodes = get_named_nodes(gm)
-  name_in_output_indices = {}
-
-  for node in gm.graph.nodes:
-    if node.op == "output":
-      assert len(node.args) <= 1
-      if len(node.args) == 0:
-        continue
-      for i, arg in enumerate(next(iter(node.args))):  # type: ignore
-        if arg in named_nodes:
-          name_in_output_indices[named_nodes[arg]] = i
-
-  return name_in_output_indices
-
-
-def get_name_in_input_names(gm: torch.fx.GraphModule):
-  named_nodes = get_named_nodes(gm)
-  name_in_input_names = {}
-
-  for node in gm.graph.nodes:
-    if node.op == "placeholder":
-      if node in named_nodes:
-        name_in_input_names[named_nodes[node]] = node.target
-
-  return name_in_input_names
