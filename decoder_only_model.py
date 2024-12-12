@@ -242,14 +242,16 @@ class DecoderOnlyModel(nn.Module):
 
     # decoder layers
     if self.use_scan:
+      if self.use_offload:
+        remat_partitioner = partial(
+            remat_all_and_offload_these_inputs,
+            names_to_offload=["decoder_input"])
+      else:
+        remat_partitioner = remat_all_partition_fn
       hidden_states = scan_layers(
-          self.layers,
-          hidden_states,
-          partition_fn=partial(
-              remat_all_and_offload_these_inputs,
-              names_to_offload=["decoder_input"])
-          if self.use_offload else remat_all_partition_fn)
+          self.layers, hidden_states, partition_fn=remat_partitioner)
     else:
+      assert not self.use_offload, "Offloading only works with scan"
       for layer in self.layers:
         hidden_states = layer(hidden_states)
 
