@@ -10,6 +10,7 @@ export TPU_LIBRARY_PATH=/workspaces/torch/_libtpu.so
 """
 from decoder_only_model import DecoderOnlyConfig, DecoderOnlyModel
 
+import time
 import os
 import torch_xla
 import torch_xla.debug.metrics
@@ -45,7 +46,7 @@ def main(num_layers: int, profile_name: str, spmd: bool, offload: bool,
   config.vocab_size = 8192
   model = DecoderOnlyModel(config=config).to(device)
   batch_size = 32
-  sequence_length = 512
+  sequence_length = 1024
 
   model.use_offload_(offload)
   model.use_scan_(True)
@@ -91,9 +92,12 @@ def main(num_layers: int, profile_name: str, spmd: bool, offload: bool,
       step_fn, full_graph=True, name="train_step_fn")
 
   print("Compiling model")
-  for i in range(2):
+  start = time.time()
+  for _ in range(2):
     compiled_step_fn()  # type:ignore
   torch_xla.sync(wait=True)
+  end = time.time()
+  print(f"Compilation took: {end - start} seconds")
 
   model.zero_grad()
   torch_xla.sync(wait=True)
