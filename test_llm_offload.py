@@ -5,10 +5,28 @@ export LIBTPU_INIT_ARGS="--xla_enable_async_all_gather=true --xla_tpu_enable_asy
 
 Suggested LIBTPU: After Nov 12
 
+How to use custom libtpu:
+
+```
 export TPU_LIBRARY_PATH=/workspaces/torch/_libtpu.so
+```
+
+Examples:
+
+```
+# Test 80 layer toy decoder with SPMD distribution
+./test_llm_offload.sh --profile --num-layers 80 --spmd
+
+# Test 80 layer toy decoder with SPMD distribution and also offload decoder inputs
+./test_llm_offload.sh --profile --num-layers 80 --spmd --offload
+
+# Test 80 layer toy decoder with SPMD distribution and also offload decoder inputs and with flash attention
+./test_llm_offload.sh --profile --num-layers 80 --spmd --offload --flash-attention
+```
 
 """
 from decoder_only_model import DecoderOnlyConfig, DecoderOnlyModel
+from aot_flash_attention import flash_attention_2
 
 import time
 import os
@@ -18,13 +36,14 @@ import torch
 import torch_xla.distributed.spmd as xs
 import torch_xla.utils.utils as xu
 import torch_xla.distributed.parallel_loader as pl
+import torch_xla.debug.profiler as xp
 from torch_xla import runtime as xr
 from itertools import chain
 from tqdm import tqdm
 
 
-def main(num_layers: int, profile_name: str, spmd: bool, offload: bool,
-         profile: bool):
+def main(num_layers: int, profile_name: str, num_steps: int, spmd: bool,
+         offload: bool, profile: bool, flash_attention: bool):
   if spmd:
     # Sharding
     num_devices = xr.global_runtime_device_count()
@@ -41,7 +60,10 @@ def main(num_layers: int, profile_name: str, spmd: bool, offload: bool,
 
   print("Building model")
   device = torch_xla.device()
-  config = DecoderOnlyConfig(hidden_size=1024, num_hidden_layers=num_layers)
+  config = DecoderOnlyConfig(
+      hidden_size=1024,
+      num_hidden_layers=num_layers,
+      use_flash_attention=flash_attention)
   config.intermediate_size = 4096
   config.vocab_size = 8192
   model = DecoderOnlyModel(config=config).to(device)
@@ -50,6 +72,12 @@ def main(num_layers: int, profile_name: str, spmd: bool, offload: bool,
 
   model.use_offload_(offload)
   model.use_scan_(True)
+  if flash_attention:
+    assert spmd, "Flash attention requires SPMD"
+    for layer in model.layers:
+      layer.self_attn.flash_attention_impl = flash_attention_2  # type: ignore
+      # from torch_xla.experimental.custom_kernel import flash_attention
+    # layer.self_attn.flash_attention_impl = flash_attention  # type: ignore
 
   if spmd and spmd_mesh:
     # Mark model weights to be sharded
@@ -78,6 +106,7 @@ def main(num_layers: int, profile_name: str, spmd: bool, offload: bool,
   # Shard the input data too.
   if spmd and spmd_mesh:
     xs.mark_sharding(input_ids, spmd_mesh, ('fsdp', None))
+    xs.set_global_mesh(spmd_mesh)
 
   optimizer = torch.optim.SGD(model.parameters(), lr=0.00001)
   torch_xla.sync(wait=True)
@@ -85,11 +114,13 @@ def main(num_layers: int, profile_name: str, spmd: bool, offload: bool,
   def step_fn():
     optimizer.zero_grad()
     output = model(input_ids.clone())
-    output.sum().backward()
-    optimizer.step()
+    with xp.Trace('backward'):
+      output.sum().backward()
+    with xp.Trace('optimizer'):
+      optimizer.step()
 
   compiled_step_fn = torch_xla.compile(
-      step_fn, full_graph=True, name="train_step_fn")
+      step_fn, full_graph=True, name="train_step")
 
   print("Compiling model")
   start = time.time()
@@ -109,13 +140,12 @@ def main(num_layers: int, profile_name: str, spmd: bool, offload: bool,
     logdir = f"profile/{profile_name}/"
     print(f"Log directory: {logdir}")
     os.makedirs(logdir, exist_ok=True)
-    import torch_xla.debug.profiler as xp
     server = xp.start_server(9017)
     xp.trace_detached(
         service_addr="localhost:9017", logdir=logdir, duration_ms=10000)
   else:
     print("Running model")
-  for i in tqdm(range(10)):
+  for i in tqdm(range(num_steps)):
     compiled_step_fn()  # type:ignore
   torch_xla.sync(wait=True)
   if profile:
@@ -136,6 +166,8 @@ if __name__ == "__main__":
   parser = argparse.ArgumentParser()
   parser.add_argument(
       '--num-layers', type=int, default=30, help='Number of decoder layers')
+  parser.add_argument(
+      '--num-steps', type=int, default=10, help='Number of train steps')
   parser.add_argument('--name', type=str, required=True, help='Name of the run')
   parser.add_argument(
       '--spmd', action='store_true', required=False, help='Use SPMD')
@@ -146,11 +178,18 @@ if __name__ == "__main__":
       help='Use host offloading')
   parser.add_argument(
       '--profile', action='store_true', required=False, help='Profile model')
+  parser.add_argument(
+      '--flash-attention',
+      action='store_true',
+      required=False,
+      help='Use flash attention')
   args = parser.parse_args()
   name = args.name
   main(
       args.num_layers,
       name,
+      num_steps=args.num_steps,
       spmd=args.spmd,
       offload=args.offload,
-      profile=args.profile)
+      profile=args.profile,
+      flash_attention=args.flash_attention)

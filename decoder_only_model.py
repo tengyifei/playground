@@ -135,8 +135,12 @@ class GroupQueryAttention(nn.Module):
       assert self.flash_attention_impl != None
       # [B, n_head, S, head_dim], [B, n_head, S, head_dim], [B, n_head, S, head_dim]
       # -> [B, n_head, S, head_dim]
-      attn_output = self.flash_attention_impl(query_states, key_states,
-                                              value_states)
+      attn_output = self.flash_attention_impl(
+          query_states,
+          key_states,
+          value_states,
+          causal=True,
+          partition_spec=('fsdp', 'tensor', None, None))
 
     # [B, n_head, S, head_dim] -> [B * S * n_head * head_dim]
     attn_output = attn_output.transpose(1, 2).contiguous()
@@ -243,9 +247,7 @@ class DecoderOnlyModel(nn.Module):
     # decoder layers
     if self.use_scan:
       if self.use_offload:
-        remat_partitioner = partial(
-            remat_all_and_offload_these_inputs,
-            names_to_offload=["decoder_input"])
+        remat_partitioner = remat_all_offload_decoder_input
       else:
         remat_partitioner = remat_all_partition_fn
       hidden_states = scan_layers(
@@ -258,3 +260,7 @@ class DecoderOnlyModel(nn.Module):
     hidden_states = self.norm(hidden_states)
     # [B, S, H] -> [B, S, V]
     return self.lm_head(hidden_states)
+
+
+remat_all_offload_decoder_input = partial(
+    remat_all_and_offload_these_inputs, names_to_offload=["decoder_input"])

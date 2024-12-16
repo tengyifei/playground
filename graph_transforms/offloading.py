@@ -64,12 +64,16 @@ def remat_all_and_offload_these_inputs(
   with torch.no_grad():
 
     def forward(**kwargs):
-      out = fwd(**kwargs)
-      indices_to_offload = set(
-          [fw_name_in_output_indices[name] for name in names_to_offload])
-      return tuple(
-          torch.ops.xla.place_to_host(v) if i in  # type:ignore
-          indices_to_offload else v for i, v in enumerate(out))
+      import pdb
+      try:
+        out = fwd(**kwargs)
+        indices_to_offload = set(
+            [fw_name_in_output_indices[name] for name in names_to_offload])
+        return tuple(
+            torch.ops.xla.place_to_host(v) if i in  # type:ignore
+            indices_to_offload else v for i, v in enumerate(out))
+      except Exception:
+        pdb.post_mortem()
 
     def backward(**kwargs):
       arguments_to_move_back = set(
@@ -78,7 +82,11 @@ def remat_all_and_offload_these_inputs(
           k: torch.ops.xla.place_to_device(v)  # type: ignore
           if k in arguments_to_move_back else v for k, v in kwargs.items()
       }
-      return bwd(**kwargs)
+      import pdb
+      try:
+        return bwd(**kwargs)
+      except Exception:
+        pdb.post_mortem()
 
     # Use AOTAutograd to retrace forward and backward, thus incorporating
     # the offloading ops.
