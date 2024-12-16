@@ -133,6 +133,9 @@ def main(num_layers: int, profile_name: str, num_steps: int, spmd: bool,
   model.zero_grad()
   torch_xla.sync(wait=True)
 
+  # Set a debug env var.
+  os.environ["DEBUG_TRANSFER_IR_VALUE_TENSOR_TO_XLA_DATA"] = "1"
+
   # Start profiling
   server = None
   if profile:

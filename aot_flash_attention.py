@@ -31,8 +31,7 @@ def defeat_device_data(v):
   Use this function to stop a tensor from become device data, so that sharding
   annotations may be applied.
   """
-  epsilon = 1e-9
-  return v + epsilon
+  return v
 
 
 def describe_value(v):

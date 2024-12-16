@@ -13,5 +13,10 @@ export XLA_SAVE_TENSORS_FILE=ir_dumps/scan-offload-ptxla.txt
 export XLA_SAVE_TENSORS_FMT=hlo
 export XLA_FLAGS=--xla_dump_to=xla_dumps/scan-offload-ptxla
 
-# python3 -m pdb -c continue test_llm_offload.py --name ptxla-scan "$@"
+# Debugging notes:
+# set print object on
+# set print vtbl on
+# b torch_xla/csrc/tensor.cpp:460
+# set substitute-path torch_xla/csrc /workspaces/torch/pytorch/xla/torch_xla/csrc
+# gdb --args python3 test_llm_offload.py --name ptxla-scan "$@"
 python3 test_llm_offload.py --name ptxla-scan "$@"
