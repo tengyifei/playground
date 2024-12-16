@@ -66,7 +66,7 @@ def main(num_layers: int, profile_name: str, num_steps: int, spmd: bool,
       use_flash_attention=flash_attention)
   config.intermediate_size = 4096
   config.vocab_size = 8192
-  model = DecoderOnlyModel(config=config).to(device)
+  model = DecoderOnlyModel(config=config).bfloat16().to(device)
   batch_size = 32
   sequence_length = 1024
 

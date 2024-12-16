@@ -2,9 +2,10 @@ from typing import Sequence
 import torch.fx as fx
 import torch
 import torch_xla
+from torch.utils._pytree import tree_iter
 
 from functorch.compile import aot_function, make_boxed_func  # type:ignore
-from graph_transforms.remat_all import remat_all_partition_fn
+from .remat_all import remat_all_partition_fn
 
 
 @torch.library.custom_op("xla::offload_name", mutates_args=())
@@ -48,9 +49,10 @@ def remat_all_and_offload_these_inputs(
   specified names to host memory, moving them back during the backward pass.
   It transforms the joint graph into separate forward and backward graphs.
   """
+  input_device = next(iter(tree_iter(_joint_inputs))).device
   fwd, bwd = remat_all_partition_fn(
       joint_module, _joint_inputs, num_fwd_outputs=num_fwd_outputs)
-  with torch.device('meta'):
+  with torch.device(input_device):
     fw_example_args = make_arguments(fwd)
     bw_example_args = make_arguments(bwd)
 
