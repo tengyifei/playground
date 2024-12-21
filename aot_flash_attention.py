@@ -23,17 +23,6 @@ _XLA_USE_BF16 = os.environ.get("XLA_USE_BF16", "0") == "1"
 _DEBUG = False
 
 
-def defeat_device_data(v):
-  """
-  mark_sharding incorrectly assumes that device data tensors are always input data
-  to be transferred to the TPU.
-
-  Use this function to stop a tensor from become device data, so that sharding
-  annotations may be applied.
-  """
-  return v
-
-
 def describe_value(v):
   if v is not None and isinstance(v, torch.Tensor):
     print(f"{type(v)}({v.shape}, dtype={v.dtype}, device={v.device})")
@@ -219,11 +208,6 @@ def fa_custom_forward(
     q: torch.Tensor, k: torch.Tensor, v: torch.Tensor
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor,
            torch.Tensor]:
-  with xp.Trace('prologue'):
-    q = defeat_device_data(q)
-    k = defeat_device_data(k)
-    v = defeat_device_data(v)
-
   partition_spec = ('fsdp', 'tensor', None, None)
   mesh = xs.get_global_mesh()
   assert mesh is not None
@@ -356,11 +340,20 @@ def fa_custom_forward(
       # See the transfer to device in a trace: http://shortn/_4zOQhGezCS.
       # As a result, we get a `!IsManual()` assertion in HLO sharding propgation.
       # Therefore, we spell it as a permute + index into the first dim.
+      # However, that causes NaN loss for some reason. So we'll perform the slicing after
+      # disabling manual sharding below.
       # l = aux[-2][:, :, :, 0]
-      l = aux[-2].permute(3, 0, 1, 2)[0]
+      # l = aux[-2].permute(3, 0, 1, 2)[0]
+      l = aux[-2]
       # print(torch_xla._XLAC._get_xla_tensors_text([l]))
       # m = aux[-1][:, :, :, 0]
-      m = aux[-1].permute(3, 0, 1, 2)[0]
+      # m = aux[-1].permute(3, 0, 1, 2)[0]
+      m = aux[-1]
+
+  # print(f"L shape: {l.shape}")
+  # print(f"M shape: {m.shape}")
+  # print(f"Q full shape: {q_full_shape}")
+  # print(f"K full shape: {kv_full_shape}")
 
   # SPMD integration
   with xp.Trace('shard2'):
@@ -368,9 +361,13 @@ def fa_custom_forward(
       o = xs.disable_manual_sharding(
           o, partition_spec, q_full_shape, mesh=mesh).global_tensor
       l = xs.disable_manual_sharding(
-          l, partition_spec[0:3], q_full_shape[0:3], mesh=mesh).global_tensor
+          l, partition_spec, q_full_shape[:3] + (l.shape[-1],),
+          mesh=mesh).global_tensor
+      l = l[:, :, :, 0]
       m = xs.disable_manual_sharding(
-          m, partition_spec[0:3], q_full_shape[0:3], mesh=mesh).global_tensor
+          m, partition_spec, q_full_shape[:3] + (m.shape[-1],),
+          mesh=mesh).global_tensor
+      m = m[:, :, :, 0]
 
   assert partition_spec is not None
 
@@ -427,9 +424,9 @@ def fa_custom_backward(
 
   from jax.experimental.pallas.ops.tpu.flash_attention import _flash_attention_bwd_dq, _flash_attention_bwd_dkv
 
-  grad_output = defeat_device_data(grad_output)
+  grad_output = grad_output.clone()
   saved_tensors = (q, k, v, o, l, m)
-  q, k, v, o, l, m = (defeat_device_data(t) for t in saved_tensors)
+  q, k, v, o, l, m = (t.clone() for t in saved_tensors)
 
   causal = True
   sm_scale = 1.0
@@ -583,19 +580,16 @@ class FlashAttention2(torch.autograd.Function):
       ctx.q_shape = q.shape
       ctx.k_shape = k.shape
 
-      q = q.clone().detach()
-      k = k.clone().detach()
-      v = v.clone().detach()
       outs = torch.ops.xla.fa_custom_forward(q, k, v)
       if _DEBUG:
         print("forward done with fa_custom_forward")
 
       o = outs[0]
-      full_q, full_k, full_v, l, m = [x.detach() for x in outs[1:]]
+      full_q, full_k, full_v, l, m = [x for x in outs[1:]]
 
       # q_segment_ids and kv_segment_ids are sharded here if partition_spec is provided
       # but it should be OK as the backward will use the same partition_spec
-      ctx.save_for_backward(full_q, full_k, full_v, o.detach(), l, m)
+      ctx.save_for_backward(full_q, full_k, full_v, o, l, m)
       return o
 
   @staticmethod
@@ -605,12 +599,12 @@ class FlashAttention2(torch.autograd.Function):
       if _DEBUG:
         print("Inside backward")
 
-      saved = [v.detach() for v in ctx.saved_tensors]
+      saved = [v for v in ctx.saved_tensors]
       if _DEBUG:
         for t in [grad_output] + saved:
           describe_value(t)
 
-      return torch.ops.xla.fa_custom_backward(grad_output.detach(), *saved,
+      return torch.ops.xla.fa_custom_backward(grad_output, *saved,
                                               list(ctx.q_shape),
                                               list(ctx.k_shape))
 

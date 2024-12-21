@@ -1,4 +1,4 @@
-set -exo
+set -ex
 
 mkdir -p profile
 rm ir_dumps/scan-offload-ptxla.txt.* || true

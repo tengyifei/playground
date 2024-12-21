@@ -15,19 +15,20 @@ Examples:
 
 ```
 # Test 80 layer toy decoder with SPMD distribution
-./test_llm_offload.sh --profile --num-layers 80 --spmd
+./test_llm_offload.sh --profile --num-layers 80 --spmd --scan
 
 # Test 80 layer toy decoder with SPMD distribution and also offload decoder inputs
-./test_llm_offload.sh --profile --num-layers 80 --spmd --offload
+./test_llm_offload.sh --profile --num-layers 80 --spmd --scan --offload
 
 # Test 80 layer toy decoder with SPMD distribution and also offload decoder inputs and with flash attention
-./test_llm_offload.sh --profile --num-layers 80 --spmd --offload --flash-attention
+./test_llm_offload.sh --profile --num-layers 80 --spmd ---scan --offload --flash-attention
 ```
 
 """
 from decoder_only_model import DecoderOnlyConfig, DecoderOnlyModel
 from aot_flash_attention import flash_attention_2
 
+import math
 import time
 import os
 import torch_xla
@@ -41,9 +42,11 @@ from torch_xla import runtime as xr
 from itertools import chain
 from tqdm import tqdm
 
+from transformers.optimization import Adafactor
+
 
 def main(num_layers: int, profile_name: str, num_steps: int, spmd: bool,
-         offload: bool, profile: bool, flash_attention: bool):
+         offload: bool, profile: bool, flash_attention: bool, scan: bool):
   if spmd:
     # Sharding
     num_devices = xr.global_runtime_device_count()
@@ -61,17 +64,17 @@ def main(num_layers: int, profile_name: str, num_steps: int, spmd: bool,
   print("Building model")
   device = torch_xla.device()
   config = DecoderOnlyConfig(
-      hidden_size=1024,
+      hidden_size=2048,
       num_hidden_layers=num_layers,
       use_flash_attention=flash_attention)
-  config.intermediate_size = 4096
-  config.vocab_size = 8192
+  config.intermediate_size = 8192
+  config.vocab_size = 16384
   model = DecoderOnlyModel(config=config).bfloat16().to(device)
   batch_size = 32
-  sequence_length = 1024
+  sequence_length = 4096
 
   model.use_offload_(offload)
-  model.use_scan_(True)
+  model.use_scan_(scan)
   if flash_attention:
     assert spmd, "Flash attention requires SPMD"
     for layer in model.layers:
@@ -108,16 +111,41 @@ def main(num_layers: int, profile_name: str, num_steps: int, spmd: bool,
     xs.mark_sharding(input_ids, spmd_mesh, ('fsdp', None))
     xs.set_global_mesh(spmd_mesh)
 
-  optimizer = torch.optim.SGD(model.parameters(), lr=0.00001)
+  optimizer = Adafactor(
+      model.parameters(),
+      lr=0.00001,
+      scale_parameter=False,
+      relative_step=False)
   torch_xla.sync(wait=True)
 
-  def step_fn():
+  def loss_fn(logits, labels):
+    # Shift so that tokens < n predict n
+    shift_logits = logits[..., :-1, :].contiguous()
+    shift_labels = labels[..., 1:].contiguous()
+    # Flatten the tokens
+    loss_fct = torch.nn.CrossEntropyLoss()
+    shift_logits = shift_logits.view(-1, config.vocab_size)
+    shift_labels = shift_labels.view(-1)
+    # Enable model parallelism
+    shift_labels = shift_labels.to(shift_logits.device)
+    return loss_fct(shift_logits, shift_labels)
+
+  def step_closure(loss):
+    loss_str = str(loss.item() if loss is not None else "none")
+    bar.set_postfix_str("loss=" + loss_str)
+    if math.isnan(loss.item()):
+      raise RuntimeError("Loss became NaN")
+
+  def step_fn(bar=None):
     optimizer.zero_grad()
-    output = model(input_ids.clone())
+    logits = model(input_ids).float()
+    loss = loss_fn(logits, input_ids)
     with xp.Trace('backward'):
-      output.sum().backward()
+      loss.backward()
     with xp.Trace('optimizer'):
       optimizer.step()
+    if bar:
+      torch_xla.xm.add_step_closure(step_closure, args=(loss,))
 
   compiled_step_fn = torch_xla.compile(
       step_fn, full_graph=True, name="train_step")
@@ -148,8 +176,9 @@ def main(num_layers: int, profile_name: str, num_steps: int, spmd: bool,
         service_addr="localhost:9017", logdir=logdir, duration_ms=10000)
   else:
     print("Running model")
-  for i in tqdm(range(num_steps)):
-    compiled_step_fn()  # type:ignore
+  bar = tqdm(range(num_steps))
+  for i in bar:
+    compiled_step_fn(bar)  # type:ignore
   torch_xla.sync(wait=True)
   if profile:
     del server
@@ -186,6 +215,8 @@ if __name__ == "__main__":
       action='store_true',
       required=False,
       help='Use flash attention')
+  parser.add_argument(
+      '--scan', action='store_true', required=False, help='Use scan')
   args = parser.parse_args()
   name = args.name
   main(
@@ -195,4 +226,5 @@ if __name__ == "__main__":
       spmd=args.spmd,
       offload=args.offload,
       profile=args.profile,
-      flash_attention=args.flash_attention)
+      flash_attention=args.flash_attention,
+      scan=args.scan)
