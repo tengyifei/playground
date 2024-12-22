@@ -327,47 +327,38 @@ def fa_custom_forward(
       return o
 
     assert isinstance(o, list)
-    with xp.Trace('destructure1'):
-      o, *aux = o
-    with xp.Trace('destructure2'):
-      # l, m = (v[..., 0] for v in aux[-2:])
-      # print("Reading l. Aux is:")
-      # print(torch_xla._XLAC._get_xla_tensors_text([aux[-2]]))
-      # print("l is:")
+    o, *aux = o
 
-      # The fancier slice notation lowers to `aten.take`, which sends a large indexing
-      # tensor to the device and confuses the XLA compiler when used under scan for some reason.
-      # See the transfer to device in a trace: http://shortn/_4zOQhGezCS.
-      # As a result, we get a `!IsManual()` assertion in HLO sharding propgation.
-      # Therefore, we spell it as a permute + index into the first dim.
-      # However, that causes NaN loss for some reason. So we'll perform the slicing after
-      # disabling manual sharding below.
-      # l = aux[-2][:, :, :, 0]
-      # l = aux[-2].permute(3, 0, 1, 2)[0]
-      l = aux[-2]
-      # print(torch_xla._XLAC._get_xla_tensors_text([l]))
-      # m = aux[-1][:, :, :, 0]
-      # m = aux[-1].permute(3, 0, 1, 2)[0]
-      m = aux[-1]
-
-  # print(f"L shape: {l.shape}")
-  # print(f"M shape: {m.shape}")
-  # print(f"Q full shape: {q_full_shape}")
-  # print(f"K full shape: {kv_full_shape}")
+    # The fancier slice notation lowers to `aten.take`, which sends a large indexing
+    # tensor to the device and confuses the XLA compiler when used under scan for some reason.
+    # See the transfer to device in a trace: http://shortn/_4zOQhGezCS.
+    # As a result, we get a `!IsManual()` assertion in HLO sharding propgation.
+    # Therefore, we spell it as a permute + index into the first dim.
+    # However, that causes NaN loss for some reason. So we'll perform the slicing instead.
+    # l = aux[-2][:, :, :, 0]
+    # l = aux[-2].permute(3, 0, 1, 2)[0]
+    l = aux[-2]
+    l = torch.ops.aten.slice(l, -1, 0, 1)
+    # print(torch_xla._XLAC._get_xla_tensors_text([l]))
+    # m = aux[-1][:, :, :, 0]
+    # m = aux[-1].permute(3, 0, 1, 2)[0]
+    m = aux[-1]
+    m = torch.ops.aten.slice(m, -1, 0, 1)
 
   # SPMD integration
-  with xp.Trace('shard2'):
+  with xp.Trace('index_lm'):
     if partition_spec is not None:
       o = xs.disable_manual_sharding(
           o, partition_spec, q_full_shape, mesh=mesh).global_tensor
       l = xs.disable_manual_sharding(
           l, partition_spec, q_full_shape[:3] + (l.shape[-1],),
           mesh=mesh).global_tensor
-      l = l[:, :, :, 0]
       m = xs.disable_manual_sharding(
           m, partition_spec, q_full_shape[:3] + (m.shape[-1],),
           mesh=mesh).global_tensor
-      m = m[:, :, :, 0]
+
+    l = l.squeeze(-1)
+    m = m.squeeze(-1)
 
   assert partition_spec is not None
 

@@ -32,8 +32,10 @@ import math
 import time
 import os
 import torch_xla
+import torch_xla.runtime
 import torch_xla.debug.metrics
 import torch
+import torch_xla.distributed.spmd
 import torch_xla.distributed.spmd as xs
 import torch_xla.utils.utils as xu
 import torch_xla.distributed.parallel_loader as pl
@@ -69,9 +71,12 @@ def main(num_layers: int, profile_name: str, num_steps: int, spmd: bool,
       use_flash_attention=flash_attention)
   config.intermediate_size = 8192
   config.vocab_size = 16384
-  model = DecoderOnlyModel(config=config).bfloat16().to(device)
-  batch_size = 32
-  sequence_length = 4096
+  torch.set_default_dtype(torch.bfloat16)
+  with torch_xla.runtime.xla_device():
+    model = DecoderOnlyModel(config=config)
+  torch.set_default_dtype(torch.float32)
+  batch_size = 64
+  sequence_length = 8192
 
   model.use_offload_(offload)
   model.use_scan_(scan)
@@ -111,14 +116,18 @@ def main(num_layers: int, profile_name: str, num_steps: int, spmd: bool,
     xs.mark_sharding(input_ids, spmd_mesh, ('fsdp', None))
     xs.set_global_mesh(spmd_mesh)
 
+  # Materialize the model.
+  torch_xla.sync(wait=True)
+
+  # Create the optimizer.
   optimizer = Adafactor(
       model.parameters(),
       lr=0.00001,
       scale_parameter=False,
       relative_step=False)
-  torch_xla.sync(wait=True)
 
   def loss_fn(logits, labels):
+    logits = logits.float()
     # Shift so that tokens < n predict n
     shift_logits = logits[..., :-1, :].contiguous()
     shift_labels = labels[..., 1:].contiguous()
@@ -138,7 +147,10 @@ def main(num_layers: int, profile_name: str, num_steps: int, spmd: bool,
 
   def step_fn(bar=None):
     optimizer.zero_grad()
-    logits = model(input_ids).float()
+    logits = model(input_ids)
+    spmd_mesh = torch_xla.distributed.spmd.get_global_mesh()
+    torch_xla.distributed.spmd.mark_sharding(logits, spmd_mesh,
+                                             ('fsdp', None, 'tensor'))
     loss = loss_fn(logits, input_ids)
     with xp.Trace('backward'):
       loss.backward()
