@@ -21,7 +21,7 @@ Examples:
 ./test_llm_offload.sh --profile --num-layers 80 --spmd --scan --offload
 
 # Test 80 layer toy decoder with SPMD distribution and also offload decoder inputs and with flash attention
-./test_llm_offload.sh --profile --num-layers 80 --spmd ---scan --offload --flash-attention
+./test_llm_offload.sh --profile --num-layers 80 --spmd --scan --offload --flash-attention
 ```
 
 """
@@ -43,8 +43,6 @@ import torch_xla.debug.profiler as xp
 from torch_xla import runtime as xr
 from itertools import chain
 from tqdm import tqdm
-
-from transformers.optimization import Adafactor
 
 
 def main(num_layers: int, profile_name: str, num_steps: int, spmd: bool,
@@ -120,11 +118,12 @@ def main(num_layers: int, profile_name: str, num_steps: int, spmd: bool,
   torch_xla.sync(wait=True)
 
   # Create the optimizer.
-  optimizer = Adafactor(
+  optimizer = torch.optim.SGD(
       model.parameters(),
       lr=0.00001,
-      scale_parameter=False,
-      relative_step=False)
+  )
+
+  bar = None
 
   def loss_fn(logits, labels):
     logits = logits.float()
@@ -141,7 +140,8 @@ def main(num_layers: int, profile_name: str, num_steps: int, spmd: bool,
 
   def step_closure(loss):
     loss_str = str(loss.item() if loss is not None else "none")
-    bar.set_postfix_str("loss=" + loss_str)
+    if bar is not None:
+      bar.set_postfix_str("loss=" + loss_str)
     if math.isnan(loss.item()):
       raise RuntimeError("Loss became NaN")
 
@@ -156,8 +156,7 @@ def main(num_layers: int, profile_name: str, num_steps: int, spmd: bool,
       loss.backward()
     with xp.Trace('optimizer'):
       optimizer.step()
-    if bar:
-      torch_xla.xm.add_step_closure(step_closure, args=(loss,))
+    torch_xla.xm.add_step_closure(step_closure, args=(loss,))
 
   compiled_step_fn = torch_xla.compile(
       step_fn, full_graph=True, name="train_step")
@@ -185,7 +184,7 @@ def main(num_layers: int, profile_name: str, num_steps: int, spmd: bool,
     os.makedirs(logdir, exist_ok=True)
     server = xp.start_server(9017)
     xp.trace_detached(
-        service_addr="localhost:9017", logdir=logdir, duration_ms=10000)
+        service_addr="localhost:9017", logdir=logdir, duration_ms=31000)
   else:
     print("Running model")
   bar = tqdm(range(num_steps))
