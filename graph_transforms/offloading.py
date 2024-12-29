@@ -60,8 +60,12 @@ def remat_all_and_offload_these_inputs(
   bw_name_in_input_names = get_name_in_input_names(bwd)
 
   for name in names_to_offload:
+    print(f"Going to offload {name}")
     assert name in fw_name_in_output_indices
     assert name in bw_name_in_input_names
+
+  print("fw_name_in_output_indices", fw_name_in_output_indices)
+  print("bw_name_in_input_names", bw_name_in_input_names)
 
   with torch.no_grad():
 
@@ -78,6 +82,9 @@ def remat_all_and_offload_these_inputs(
         pdb.post_mortem()
 
     def backward(**kwargs):
+      print(f"Backward got {len(kwargs)} arguments:")
+      for k, v in kwargs.items():
+        print(f"Arg {k}: {v.shape if v is not None else 'None'}")
       arguments_to_move_back = set(
           [bw_name_in_input_names[name] for name in names_to_offload])
       kwargs = {
@@ -86,7 +93,11 @@ def remat_all_and_offload_these_inputs(
       }
       import pdb
       try:
-        return bwd(**kwargs)
+        values = bwd(**kwargs)
+        print(f"Backward will return {len(values)} values:")
+        for i, v in enumerate(values):
+          print(f"Arg {i}: {v.shape if v is not None else 'None'}")
+        return values
       except Exception:
         pdb.post_mortem()
 
