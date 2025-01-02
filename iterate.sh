@@ -15,12 +15,18 @@ if ! command -v inotifywait &> /dev/null; then
 fi
 
 echo "Running test"
-python3 "$@" || :
+for arg in "$@"; do
+  echo "Testing $arg"
+  python3 "$arg" ||:
+done
 echo "=========== DONE ==========="
 
 while inotifywait -r -e modify,create "$MONITOR_DIR" ; do
   echo "Running test"
-  python3 "$@" || :
+  for arg in "$@"; do
+    echo "Testing $arg"
+    python3 "$arg" ||:
+  done
   echo "=========== DONE ==========="
 done
 
