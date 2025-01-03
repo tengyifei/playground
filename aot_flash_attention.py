@@ -398,6 +398,10 @@ def fa_custom_forward_fake(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor):
                )])
 
 
+def defeat_alias(v):
+  return v * 1
+
+
 @custom_op("xla::fa_custom_backward", mutates_args=())
 def fa_custom_backward(
     grad_output: torch.Tensor, q: torch.Tensor, k: torch.Tensor,
@@ -415,9 +419,9 @@ def fa_custom_backward(
 
   from jax.experimental.pallas.ops.tpu.flash_attention import _flash_attention_bwd_dq, _flash_attention_bwd_dkv
 
-  grad_output = grad_output.clone()
+  grad_output = defeat_alias(grad_output)
   saved_tensors = (q, k, v, o, l, m)
-  q, k, v, o, l, m = (t.clone() for t in saved_tensors)
+  q, k, v, o, l, m = (defeat_alias(t) for t in saved_tensors)
 
   causal = True
   sm_scale = 1.0
