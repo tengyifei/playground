@@ -399,7 +399,7 @@ def fa_custom_forward_fake(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor):
 
 
 def defeat_alias(v):
-  return v * 1
+  return v * 1.0
 
 
 @custom_op("xla::fa_custom_backward", mutates_args=())
