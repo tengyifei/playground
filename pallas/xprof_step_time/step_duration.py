@@ -8,7 +8,7 @@ import os
 import statistics
 import sys
 
-from torchprime.metrics.xplane_pb2 import XSpace  # type: ignore
+from .xplane_pb2 import XSpace  # type: ignore
 
 logger = logging.getLogger(__name__)
 
