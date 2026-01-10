@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Test JAX AOT compilation for TPU"""
+"""Test JAX AOT compilation for TPU
+
+Installation:
+    pip install jax[tpu] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+
+This installs:
+    - jax 0.8.2
+    - jaxlib 0.8.2
+    - libtpu 0.0.32
+"""
 
 import jax
 import jax.numpy as jnp
